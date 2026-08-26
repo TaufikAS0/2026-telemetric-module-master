@@ -88,6 +88,7 @@
     "MCP1": {
       "address": "0x20",
       "exactPart": null,
+      "bringupDriverAssumption": "MCP23017, BANK=0, limited to B4 watchdog heartbeat; verify against BOM/schematic",
       "signals": {
         "A0": "RADIO_LED",
         "A1": "WEBSERVER_LED",

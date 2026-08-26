@@ -31,6 +31,9 @@ constexpr int SELECTOR_WEBSERVER = 39;
 constexpr int CHANGE_DISPLAY = 42;
 constexpr int BOOT_BUTTON = 0;
 
+constexpr unsigned char MCP1_I2C_ADDRESS = 0x20;
+constexpr unsigned char MCP1B4_BIT = 4;
+
 constexpr unsigned char EXPECTED_I2C_ADDRESSES[] = {
   0x20, 0x24, 0x28, 0x38, 0x57, 0x68, 0x77
 };

@@ -33,7 +33,17 @@
 - Evidence: `Modul Master.xlsx`, tab `TMM_V6_R0_M0`, received 2026-08-26.
 - Decision: Capture the verified M0 pin map in a machine-readable profile and begin with passive GPIO reads, I2C discovery, and an operator-triggered SD probe.
 - Reason: The workbook confirms bus pins but does not identify several device types or communication contracts.
-- Safety boundary: Do not transmit over LoRa/RS485 or write MCP1/MCP2, Ethernet, or ATtiny404 registers until their exact contracts are confirmed.
+- Safety boundary: Do not transmit over LoRa/RS485 or write MCP1/MCP2, Ethernet, or ATtiny404 registers until their exact contracts are confirmed or a later bounded decision records a specific bring-up exception.
 - Toolchain assumption: The MVP is an Arduino sketch for convenient bring-up only. The production framework remains undecided.
 - Consequence: The sketch can establish device presence and wiring continuity but cannot validate every peripheral function.
+
+## D-006 — MCP1B4 watchdog heartbeat precedes Wi-Fi
+
+- Status: Accepted for MVP bring-up
+- Hardware evidence: M0 workbook maps `DONE TPL` to MCP1B4; human operator states the board resets when it does not receive a heartbeat within five seconds.
+- Component assumption: MCP1 is provisionally treated as MCP23017 at I2C address 0x20 using BANK=0 registers. Confirm from BOM/schematic before powering hardware.
+- Decision: Configure MCP1B4 and issue a 100 microsecond DONE pulse every 1000 ms. Initialize it before Serial, SPI, or Wi-Fi.
+- Timing evidence: TI TPL5010 specifies a minimum DONE pulse width of 100 ns. The MVP uses a 100 microsecond pulse for margin.
+- Wi-Fi rule: Connection and retry logic must remain nonblocking and must never contain a wait-until-connected loop.
+- Security rule: Real Wi-Fi credentials live only in ignored `wifi_secrets.h`; the repository contains placeholders only.
 

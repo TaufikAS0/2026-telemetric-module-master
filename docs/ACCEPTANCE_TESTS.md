@@ -38,13 +38,17 @@ Host-side contract tests:
 - hardware profile identifies `TMM_V6_R0_M0`, ESP32-S3, ATtiny404, and source gid;
 - I2C, SPI, LoRa UART, RS485 UART, SD, and Ethernet pins match the workbook;
 - unknown part numbers and protocols remain explicit null/blocked values;
-- the sketch does not initialize unverified Ethernet, MCP, LoRa, or RS485 drivers.
+- the sketch does not initialize unverified Ethernet, LoRa, or RS485 drivers, and limits provisional MCP access to MCP1B4.
+- MCP1B4 heartbeat initialization occurs before Wi-Fi startup;
+- heartbeat interval is 1000 ms, below the operator-stated five-second reset window;
+- Wi-Fi connection/retry is nonblocking and credentials are excluded from Git.
 
 Manual board checks, only after module/flash/power/recovery settings are verified:
 
 1. Flash the bring-up sketch and capture the complete serial boot log.
 2. Run `check-i2c`; compare responding addresses with the profile.
 3. Run `gpio` while operating each selector/button and record transitions.
-4. Insert a non-production SD card and run `probe-sd`.
-5. Do not continue to active peripheral drivers when the `blocked` list is non-empty.
+4. Run `heartbeat` and require `ready: true`; scope MCP1B4 and verify a pulse every second.
+5. Run `wifi` and verify connection without any heartbeat gap approaching five seconds.
+6. Do not continue to other active peripheral drivers when the `blocked` list is non-empty.
 
