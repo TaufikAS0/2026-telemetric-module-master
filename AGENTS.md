@@ -2,11 +2,12 @@
 
 Read these files before changing source code, in this order:
 
-1. `docs/AI_HANDOFF.md`
-2. `docs/PRD.md`
-3. `docs/HARDWARE_DISCOVERY.md`
-4. `docs/DECISION_LOG.md`
-5. `docs/ACCEPTANCE_TESTS.md`
+1. `docs/TELEMETRIC_ECOSYSTEM_CONTRACT.md`
+2. `docs/AI_HANDOFF.md`
+3. `docs/PRD.md`
+4. `docs/HARDWARE_DISCOVERY.md`
+5. `docs/DECISION_LOG.md`
+6. `docs/ACCEPTANCE_TESTS.md`
 
 ## Non-negotiable rules
 
@@ -19,6 +20,7 @@ Read these files before changing source code, in this order:
 - Each commit must leave `npm test` passing.
 - Do not publish a GitHub release or mark firmware production-ready without hardware-test evidence.
 - Preserve compatibility with the Telemetric Hardware Portal manifest contract.
+- Treat this repository as the source authority for TMM only; the Firmware Library owns published artifact identity and the portal owns operational approval/QC.
 
 ## Working method
 
@@ -27,4 +29,3 @@ Read these files before changing source code, in this order:
 - Add or update tests with behavioral changes.
 - Report facts, reasonable inferences, assumptions, and unknowns separately.
 - Stop and request hardware evidence when the next decision depends on real electrical or protocol details.
-

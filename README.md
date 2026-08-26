@@ -42,3 +42,5 @@ electrical signaling or prove compatibility with physical hardware.
 - Future `telemetric-embedded-core`: shared protocol, identity, logging, OTA, and diagnostics libraries.
 - Existing `telemetric-hardware-portal`: firmware inventory, flashing, QC, reports, and audit history.
 
+Read [`docs/TELEMETRIC_ECOSYSTEM_CONTRACT.md`](docs/TELEMETRIC_ECOSYSTEM_CONTRACT.md)
+before publishing any TMM firmware artifact.
