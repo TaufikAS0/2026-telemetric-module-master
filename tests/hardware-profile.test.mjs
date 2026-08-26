@@ -5,7 +5,6 @@ import { test } from "node:test";
 const profileUrl = new URL("../hardware/profiles/TMM_V6_R0_M0.json", import.meta.url);
 const headerUrl = new URL("../firmware/bringup/tmm_v6_r0_m0/tmm_v6_r0_m0_pins.h", import.meta.url);
 const sketchUrl = new URL("../firmware/bringup/tmm_v6_r0_m0/tmm_v6_r0_m0.ino", import.meta.url);
-const secretsExampleUrl = new URL("../firmware/bringup/tmm_v6_r0_m0/wifi_secrets.example.h", import.meta.url);
 const gitignoreUrl = new URL("../.gitignore", import.meta.url);
 
 async function loadProfile() {
@@ -83,14 +82,16 @@ test("MCP1B4 heartbeat starts before Wi-Fi and stays below the reset window", as
   assert.doesNotMatch(sketch, /while\s*\(\s*WiFi\.status\(\)/);
 });
 
-test("Wi-Fi credentials remain local and ignored by Git", async () => {
-  const [sketch, example, gitignore] = await Promise.all([
+test("Wi-Fi credentials are provisioned at runtime and excluded from the build source", async () => {
+  const [sketch, gitignore] = await Promise.all([
     readFile(sketchUrl, "utf8"),
-    readFile(secretsExampleUrl, "utf8"),
     readFile(gitignoreUrl, "utf8")
   ]);
-  assert.match(sketch, /#include "wifi_secrets\.h"/);
-  assert.match(example, /YOUR_WIFI_SSID/);
-  assert.match(example, /YOUR_WIFI_PASSWORD/);
+  assert.match(sketch, /#include <Preferences\.h>/);
+  assert.match(sketch, /preferences\.putString\("ssid", ssid\)/);
+  assert.match(sketch, /preferences\.putString\("password", password\)/);
+  assert.match(sketch, /command\.startsWith\("wifi-set "\)/);
+  assert.match(sketch, /command == "wifi-clear"/);
+  assert.doesNotMatch(sketch, /wifi_secrets\.h|TMM_WIFI_SSID|TMM_WIFI_PASSWORD/);
   assert.match(gitignore, /firmware\/\*\*\/wifi_secrets\.h/);
 });

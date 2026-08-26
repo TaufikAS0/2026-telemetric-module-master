@@ -13,7 +13,7 @@ schematics, PCB inspection, datasheets, or measured evidence.
 | Wi-Fi | Required or prohibited, antenna constraints | Unknown |
 | Field bus | RS485/CAN/other, transceiver, termination | Partial: RS485 ESP RX GPIO17/TX GPIO18; transceiver, direction control, termination and protocol unknown |
 | I/O | Pin map, voltage levels, safe boot states | Partial: M0 workbook pin map captured in `hardware/profiles/TMM_V6_R0_M0.json`; safe states and ATtiny voltage conflict unresolved |
-| Storage | NVS/filesystem requirements and endurance | Unknown |
+| Storage | NVS/filesystem requirements and endurance | Partial: bring-up Wi-Fi settings use Preferences/NVS; encryption, endurance and production layout remain unknown |
 | Security | Device identity and provisioning method | Unknown |
 | Recovery | Bootloader and physical recovery procedure | Unknown |
 | QC fixture | Connections and measurable pass limits | Unknown |

@@ -16,7 +16,7 @@ only after the hardware and communication contracts are confirmed.
 - PCB revision: TMM V6 R0 mode M0 identified by workbook; schematic revision unknown
 - Physical interfaces: unknown
 - Production firmware status: not started
-- Bring-up firmware status: passive M0 diagnostic MVP added; not production firmware
+- Bring-up firmware status: passive M0 diagnostic MVP added with MCP1B4 heartbeat and runtime Serial/NVS Wi-Fi provisioning; not production firmware
 
 ## Decisions already made
 

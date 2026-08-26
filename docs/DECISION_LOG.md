@@ -45,5 +45,15 @@
 - Decision: Configure MCP1B4 and issue a 100 microsecond DONE pulse every 1000 ms. Initialize it before Serial, SPI, or Wi-Fi.
 - Timing evidence: TI TPL5010 specifies a minimum DONE pulse width of 100 ns. The MVP uses a 100 microsecond pulse for margin.
 - Wi-Fi rule: Connection and retry logic must remain nonblocking and must never contain a wait-until-connected loop.
-- Security rule: Real Wi-Fi credentials live only in ignored `wifi_secrets.h`; the repository contains placeholders only.
+- Security rule: Wi-Fi credentials must not be compiled into the sketch or release artifacts.
+
+## D-007 — Runtime Wi-Fi provisioning for bring-up
+
+- Status: Accepted for MVP bring-up only
+- Evidence: The generic compiled BIN previously contained the locally supplied SSID and password when `wifi_secrets.h` was included at compile time.
+- Decision: Remove compile-time Wi-Fi credentials. Accept `wifi-set <ssid>|<password>` over the local serial console, store the values in ESP32 Preferences/NVS, and provide `wifi-clear` to erase them.
+- Watchdog rule: NVS access and Wi-Fi startup remain bounded operations with heartbeat servicing immediately before and after NVS writes. Connection and retry remain nonblocking.
+- Disclosure rule: Status output reports only provisioned/connected state, IP address, and RSSI; it never prints the SSID or password.
+- Security limitation: Serial provisioning and the NVS partition are not assumed encrypted or production-secure. The production provisioning, device identity, flash-encryption, and credential-rotation contracts remain unknown.
+- Consequence: One generic bring-up BIN can be built and distributed without embedding a site credential, while each bench device is configured after flashing.
 

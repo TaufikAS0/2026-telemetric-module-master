@@ -21,18 +21,30 @@ At boot, the sketch:
 - configures evidence-backed status GPIOs as inputs;
 - starts I2C on GPIO 8/9 and SPI on GPIO 11/12/13;
 - holds the SD and Ethernet chip-select pins high;
-- connects Wi-Fi without a blocking wait loop;
+- loads optional Wi-Fi configuration from ESP32 Preferences/NVS and connects
+  without a blocking wait loop;
 - does not transmit over LoRa or RS485;
 - does not drive MCP pins other than MCP1B4, or any ATtiny404 pin.
 
-Before compiling, copy `wifi_secrets.example.h` to `wifi_secrets.h` in the same
-Arduino sketch folder and fill in the local SSID and password. The real file is
-ignored by Git and must not be pushed.
+The sketch compiles without Wi-Fi credentials. Provision a bench device through
+the 115200-baud serial console with:
+
+```text
+wifi-set <ssid>|<password>
+```
+
+The command does not echo the values back. It stores them in the ESP32
+Preferences/NVS partition and starts a nonblocking connection attempt. Use
+`wifi-clear` to erase the stored configuration. Serial transport and NVS are
+not treated as encrypted or production-secure by this MVP; control physical
+access to the bench device and serial log.
 
 Serial commands:
 
 - `profile` — show the board/evidence level;
 - `wifi` — show connection state, local IP, and RSSI without revealing credentials;
+- `wifi-set <ssid>|<password>` — store bench credentials in NVS and connect;
+- `wifi-clear` — erase stored Wi-Fi configuration and stop Wi-Fi;
 - `heartbeat` — show MCP1B4 heartbeat readiness and interval;
 - `scan-i2c` — list every responding I2C address;
 - `check-i2c` — check the seven addresses stated in the workbook;

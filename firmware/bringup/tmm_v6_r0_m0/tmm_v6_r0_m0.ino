@@ -1,23 +1,23 @@
 #include <Arduino.h>
+#include <Preferences.h>
 #include <SPI.h>
 #include <Wire.h>
 #include <WiFi.h>
 
 #include "tmm_v6_r0_m0_pins.h"
 
-#if __has_include("wifi_secrets.h")
-#include "wifi_secrets.h"
-#else
-#error "Copy wifi_secrets.example.h to wifi_secrets.h and fill in the local Wi-Fi credentials."
-#endif
-
 using namespace tmm_m0;
 
 namespace {
 
 String commandBuffer;
+String wifiSsid;
+String wifiPassword;
+Preferences preferences;
 constexpr uint32_t HEARTBEAT_INTERVAL_MS = 1000;
 constexpr uint32_t WIFI_RETRY_INTERVAL_MS = 10000;
+constexpr size_t WIFI_SSID_MAX_LENGTH = 32;
+constexpr size_t WIFI_PASSWORD_MAX_LENGTH = 63;
 constexpr uint8_t MCP23017_IODIRB = 0x01;
 constexpr uint8_t MCP23017_OLATB = 0x15;
 
@@ -120,18 +120,58 @@ void printGpioSnapshot() {
 
 void printWifiStatus() {
   const bool connected = WiFi.status() == WL_CONNECTED;
-  Serial.printf("{\"wifi\":{\"connected\":%s", connected ? "true" : "false");
+  Serial.printf(
+    "{\"wifi\":{\"provisioned\":%s,\"connected\":%s",
+    wifiSsid.length() ? "true" : "false", connected ? "true" : "false");
   if (connected) {
     Serial.printf(",\"ip\":\"%s\",\"rssi\":%d", WiFi.localIP().toString().c_str(), WiFi.RSSI());
   }
   Serial.println(F("}}"));
 }
 
+bool loadWifiConfiguration() {
+  if (!preferences.begin("tmm-wifi", true)) return false;
+  wifiSsid = preferences.getString("ssid", "");
+  wifiPassword = preferences.getString("password", "");
+  preferences.end();
+  return wifiSsid.length() > 0;
+}
+
+bool saveWifiConfiguration(const String &ssid, const String &password) {
+  serviceHeartbeat();
+  if (!preferences.begin("tmm-wifi", false)) return false;
+  const bool saved = preferences.putString("ssid", ssid) == ssid.length()
+    && preferences.putString("password", password) == password.length();
+  preferences.end();
+  serviceHeartbeat();
+  if (!saved) return false;
+  wifiSsid = ssid;
+  wifiPassword = password;
+  return true;
+}
+
+bool clearWifiConfiguration() {
+  serviceHeartbeat();
+  if (!preferences.begin("tmm-wifi", false)) return false;
+  const bool cleared = preferences.clear();
+  preferences.end();
+  serviceHeartbeat();
+  if (!cleared) return false;
+  wifiSsid = "";
+  wifiPassword = "";
+  WiFi.disconnect(true, false);
+  return true;
+}
+
 void startWifi() {
+  if (!wifiSsid.length()) {
+    Serial.println(F("{\"wifi\":{\"provisioned\":false,\"connected\":false}}"));
+    return;
+  }
   WiFi.persistent(false);
   WiFi.setAutoReconnect(true);
   WiFi.mode(WIFI_STA);
-  WiFi.begin(TMM_WIFI_SSID, TMM_WIFI_PASSWORD);
+  WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
   lastWifiAttemptMs = millis();
 }
 
@@ -141,6 +181,7 @@ void serviceWifi() {
     lastWifiStatus = status;
     printWifiStatus();
   }
+  if (!wifiSsid.length()) return;
   if (status == WL_CONNECTED) return;
   const uint32_t now = millis();
   if (now - lastWifiAttemptMs < WIFI_RETRY_INTERVAL_MS) return;
@@ -153,13 +194,41 @@ void printBlockedDrivers() {
 }
 
 void printHelp() {
-  Serial.println(F("Commands: profile, wifi, heartbeat, scan-i2c, check-i2c, gpio, blocked, help"));
+  Serial.println(F("Commands: profile, wifi, wifi-set <ssid>|<password>, wifi-clear, heartbeat, scan-i2c, check-i2c, gpio, blocked, help"));
 }
 
 void runCommand(String command) {
   command.trim();
   if (command == "profile") return printProfile();
   if (command == "wifi") return printWifiStatus();
+  if (command.startsWith("wifi-set ")) {
+    const String credentials = command.substring(9);
+    const int separator = credentials.indexOf('|');
+    if (separator <= 0) {
+      Serial.println(F("{\"error\":\"wifi_set_format\"}"));
+      return;
+    }
+    const String ssid = credentials.substring(0, separator);
+    const String password = credentials.substring(separator + 1);
+    if (ssid.length() > WIFI_SSID_MAX_LENGTH || password.length() > WIFI_PASSWORD_MAX_LENGTH) {
+      Serial.println(F("{\"error\":\"wifi_credentials_too_long\"}"));
+      return;
+    }
+    if (!saveWifiConfiguration(ssid, password)) {
+      Serial.println(F("{\"error\":\"wifi_save_failed\"}"));
+      return;
+    }
+    WiFi.disconnect(false, false);
+    startWifi();
+    Serial.println(F("{\"wifi\":{\"provisioned\":true,\"connecting\":true}}"));
+    return;
+  }
+  if (command == "wifi-clear") {
+    Serial.println(clearWifiConfiguration()
+      ? F("{\"wifi\":{\"provisioned\":false,\"connected\":false}}")
+      : F("{\"error\":\"wifi_clear_failed\"}"));
+    return;
+  }
   if (command == "heartbeat") {
     Serial.printf("{\"heartbeat\":{\"ready\":%s,\"intervalMs\":%lu}}\n", heartbeatReady ? "true" : "false", HEARTBEAT_INTERVAL_MS);
     return;
@@ -197,6 +266,7 @@ void setup() {
 
   printProfile();
   Serial.printf("{\"heartbeat\":{\"ready\":%s,\"intervalMs\":%lu}}\n", heartbeatReady ? "true" : "false", HEARTBEAT_INTERVAL_MS);
+  loadWifiConfiguration();
   startWifi();
   printHelp();
 }
@@ -211,6 +281,6 @@ void loop() {
       commandBuffer = "";
       continue;
     }
-    if (commandBuffer.length() < 96) commandBuffer += character;
+    if (commandBuffer.length() < 128) commandBuffer += character;
   }
 }

@@ -41,7 +41,8 @@ Host-side contract tests:
 - the sketch does not initialize unverified Ethernet, LoRa, or RS485 drivers, and limits provisional MCP access to MCP1B4.
 - MCP1B4 heartbeat initialization occurs before Wi-Fi startup;
 - heartbeat interval is 1000 ms, below the operator-stated five-second reset window;
-- Wi-Fi connection/retry is nonblocking and credentials are excluded from Git.
+- Wi-Fi connection/retry is nonblocking, credentials are provisioned through
+  Serial/NVS, and no credential is compiled into the generic BIN.
 
 Manual board checks, only after module/flash/power/recovery settings are verified:
 
@@ -49,6 +50,10 @@ Manual board checks, only after module/flash/power/recovery settings are verifie
 2. Run `check-i2c`; compare responding addresses with the profile.
 3. Run `gpio` while operating each selector/button and record transitions.
 4. Run `heartbeat` and require `ready: true`; scope MCP1B4 and verify a pulse every second.
-5. Run `wifi` and verify connection without any heartbeat gap approaching five seconds.
-6. Do not continue to other active peripheral drivers when the `blocked` list is non-empty.
+5. Run `wifi-set <ssid>|<password>`, then `wifi`; verify connection without any
+   heartbeat gap approaching five seconds and verify the status output does not
+   disclose either credential.
+6. Power-cycle the board, run `wifi`, and verify the NVS configuration reconnects.
+7. Run `wifi-clear`, power-cycle again, and verify the board remains unprovisioned.
+8. Do not continue to other active peripheral drivers when the `blocked` list is non-empty.
 
