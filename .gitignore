@@ -1,0 +1,11 @@
+node_modules/
+coverage/
+dist/
+*.log
+*.bin
+*.elf
+*.map
+.env
+.env.*
+!.env.example
+

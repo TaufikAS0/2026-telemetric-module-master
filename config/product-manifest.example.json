@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "productCode": "TMM",
+  "productName": "Telemetric Module Master",
+  "version": "0.0.0-development",
+  "buildId": "UNASSIGNED",
+  "channel": "development",
+  "hardwareRevision": "UNCONFIRMED",
+  "chipFamily": "UNCONFIRMED",
+  "flashSize": "UNCONFIRMED",
+  "flashMode": "UNCONFIRMED",
+  "partitionScheme": "UNCONFIRMED",
+  "imageType": "full",
+  "offset": 0,
+  "sha256": "GENERATED_AT_RELEASE_TIME",
+  "releaseEvidence": []
+}
+

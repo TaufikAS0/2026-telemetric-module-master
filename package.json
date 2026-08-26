@@ -1,0 +1,15 @@
+{
+  "name": "2026-telemetric-module-master",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Hardware-neutral desktop simulator and specification package for Telemetric Module Master (TMM).",
+  "type": "module",
+  "scripts": {
+    "start": "node simulator/server.mjs",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
+
