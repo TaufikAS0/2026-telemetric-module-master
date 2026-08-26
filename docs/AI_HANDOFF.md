@@ -12,10 +12,11 @@ only after the hardware and communication contracts are confirmed.
 - Product name: `Telemetric Module Master`
 - Category: `Main Products / Monitoring & Control`
 - Current maturity: Phase 0, desktop simulator
-- Production MCU: unknown
-- PCB revision: unknown
+- Production MCU: partial evidence for ESP32-S3 + ATtiny404; exact ESP32-S3 part/module unknown
+- PCB revision: TMM V6 R0 mode M0 identified by workbook; schematic revision unknown
 - Physical interfaces: unknown
 - Production firmware status: not started
+- Bring-up firmware status: passive M0 diagnostic MVP added; not production firmware
 
 ## Decisions already made
 

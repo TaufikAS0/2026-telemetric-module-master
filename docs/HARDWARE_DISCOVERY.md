@@ -5,14 +5,14 @@ schematics, PCB inspection, datasheets, or measured evidence.
 
 | Area | Required evidence | Current state |
 |---|---|---|
-| MCU | Exact part number and module variant | Unknown |
-| PCB | Product revision and schematic revision | Unknown |
+| MCU | Exact part number and module variant | Partial: workbook identifies ESP32-S3 and ATtiny404; exact ESP32-S3 part/module is unknown |
+| PCB | Product revision and schematic revision | Partial: workbook tab identifies TMM V6 R0 M0; schematic revision/file is unknown |
 | Power | Input range, rails, protection, current budget | Unknown |
-| Flash | Size and mode | Unknown |
-| Ethernet | PHY/controller, interface, pins, clocking | Unknown |
+| Flash | Size and mode | Partial: workbook warns GPIO35-GPIO37 are used by 8 MB RAM; RAM type, flash size/mode and memory parts remain unknown |
+| Ethernet | PHY/controller, interface, pins, clocking | Partial: SPI GPIO11/12/13, CS GPIO10, INT GPIO48, reset MCP1B3; controller/PHY and clocking unknown |
 | Wi-Fi | Required or prohibited, antenna constraints | Unknown |
-| Field bus | RS485/CAN/other, transceiver, termination | Unknown |
-| I/O | Pin map, voltage levels, safe boot states | Unknown |
+| Field bus | RS485/CAN/other, transceiver, termination | Partial: RS485 ESP RX GPIO17/TX GPIO18; transceiver, direction control, termination and protocol unknown |
+| I/O | Pin map, voltage levels, safe boot states | Partial: M0 workbook pin map captured in `hardware/profiles/TMM_V6_R0_M0.json`; safe states and ATtiny voltage conflict unresolved |
 | Storage | NVS/filesystem requirements and endurance | Unknown |
 | Security | Device identity and provisioning method | Unknown |
 | Recovery | Bootloader and physical recovery procedure | Unknown |
@@ -24,4 +24,20 @@ schematics, PCB inspection, datasheets, or measured evidence.
 - Source code from another product is not proof that TMM uses the same hardware.
 - A successful compile proves toolchain consistency, not board compatibility.
 - A successful simulator test proves software behavior only at the simulated boundary.
+
+## M0 evidence received 2026-08-26
+
+Source: `Modul Master.xlsx`, tab `TMM_V6_R0_M0`, gid `638455439`.
+
+Confirmed by the workbook:
+
+- ESP32-S3 master and ATtiny404 supervisor;
+- I2C GPIO8/GPIO9 and stated addresses 0x20, 0x24, 0x28, 0x38, 0x57, 0x68 and 0x77;
+- shared SPI GPIO11/GPIO12/GPIO13, SD CS GPIO47, Ethernet CS GPIO10 and INT GPIO48;
+- LoRa ESP RX GPIO5/TX GPIO4 and RS485 ESP RX GPIO17/TX GPIO18;
+- direct selector/button/status pins and MCP1/MCP2 logical signal names.
+
+Conflict requiring schematic or measurement: the ATtiny404 connection table says
+3.3 V, while its PA1/PA2 notes describe 1.8 V I2C behind a 1.8 V-to-3.3 V
+level shifter. Do not program or actively drive the supervisor until resolved.
 

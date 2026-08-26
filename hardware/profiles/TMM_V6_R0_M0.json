@@ -1,0 +1,163 @@
+{
+  "schemaVersion": 1,
+  "profileId": "TMM_V6_R0_M0",
+  "productCode": "TMM",
+  "pcbRevision": "V6 R0",
+  "mode": "M0",
+  "status": "bring-up-only",
+  "evidence": {
+    "sourceTitle": "Modul Master.xlsx",
+    "sheet": "TMM_V6_R0_M0",
+    "sheetGid": 638455439,
+    "sourceUrl": "https://docs.google.com/spreadsheets/d/1y62J80F37snkaED5TzMnfLOFonFgcJXc/edit?gid=638455439#gid=638455439",
+    "accessedOn": "2026-08-26",
+    "evidenceLevel": "engineering-pinout-workbook"
+  },
+  "controllers": {
+    "master": {
+      "family": "ESP32-S3",
+      "exactPartNumber": null,
+      "moduleVariant": null,
+      "flash": null,
+      "externalRamIndication": {
+        "sizeMiB": 8,
+        "memoryType": null,
+        "evidence": "Sheet warning marks GPIO35-GPIO37 as RAM 8MB; whether this is PSRAM and its exact part/mode remain unknown."
+      }
+    },
+    "supervisor": {
+      "part": "ATtiny404",
+      "i2cAddress": "0x77",
+      "supplyVoltage": null,
+      "voltageConflict": "Connection table says 3.3V, while PA1/PA2 notes describe a 1.8V-to-3.3V level shifter. Resolve from schematic or measurement before programming."
+    }
+  },
+  "buses": {
+    "i2c": {
+      "sda": 8,
+      "scl": 9,
+      "devices": [
+        { "label": "MCP1", "address": "0x20", "exactPart": null },
+        { "label": "MCP2", "address": "0x24", "exactPart": null },
+        { "label": "PD_CONVERTER_POWER_TYPE_C", "address": "0x28", "exactPart": null },
+        { "label": "AHT", "address": "0x38", "exactPart": null },
+        { "label": "EEPROM", "address": "0x57", "exactPart": null },
+        { "label": "RTC", "address": "0x68", "exactPart": null },
+        { "label": "ATTINY404", "address": "0x77", "exactPart": "ATtiny404" },
+        { "label": "OLED_SSD1306", "address": null, "exactPart": "SSD1306" }
+      ]
+    },
+    "spi": {
+      "mosi": 11,
+      "sck": 12,
+      "miso": 13,
+      "devices": [
+        { "label": "MICRO_SD", "chipSelect": 47, "cardDetect": "MCP1B2" },
+        { "label": "ETHERNET", "chipSelect": 10, "interrupt": 48, "reset": "MCP1B3", "exactController": null }
+      ]
+    },
+    "uart": {
+      "lora": {
+        "espRx": 5,
+        "espTx": 4,
+        "baud": null,
+        "protocol": null,
+        "controlPins": { "ack": 1, "aux": 2, "link": 6, "m0": 7, "m1": 14, "reset": "MCP1B1" }
+      },
+      "rs485": {
+        "espRx": 17,
+        "espTx": 18,
+        "baud": null,
+        "protocol": null,
+        "transceiver": null,
+        "directionControl": null,
+        "termination": null
+      }
+    }
+  },
+  "directInputs": {
+    "selectorDmm": 40,
+    "selectorMma": 41,
+    "selectorWebserver": 39,
+    "changeDisplayButton": 42,
+    "bootButton": 0,
+    "ethernetInterrupt": 48,
+    "stm811Tpl5010Input": "EN"
+  },
+  "expanders": {
+    "MCP1": {
+      "address": "0x20",
+      "exactPart": null,
+      "signals": {
+        "A0": "RADIO_LED",
+        "A1": "WEBSERVER_LED",
+        "A2": "MODULE_1_LED",
+        "A3": "MODULE_2_LED",
+        "A4": "TX_COMM_LED",
+        "A5": "RX_COMM_LED",
+        "A6": "TX_RADIO_LED",
+        "A7": "RX_RADIO_LED",
+        "B0": "ERROR_LED",
+        "B1": "LORA_RESET",
+        "B2": "SD_CARD_DETECT",
+        "B3": "ETHERNET_RESET",
+        "B4": "TPL_DONE",
+        "B5": "SWITCH_POWER_INPUT",
+        "B6": "SPARE_2",
+        "B7": "SPARE_1"
+      }
+    },
+    "MCP2": {
+      "address": "0x24",
+      "exactPart": null,
+      "signals": {
+        "A0": "INPUT_8",
+        "A1": "INPUT_7",
+        "A2": "INPUT_6",
+        "A3": "INPUT_5",
+        "A4": "INPUT_4",
+        "A5": "INPUT_3",
+        "A6": "INPUT_2",
+        "A7": "INPUT_1",
+        "B0": "ADDRESS_1",
+        "B1": "ADDRESS_2",
+        "B2": "ADDRESS_3",
+        "B3": "ADDRESS_4",
+        "B4": "SPARE",
+        "B5": "SPARE",
+        "B6": "SPARE",
+        "B7": "SPARE"
+      }
+    }
+  },
+  "supervisorPins": {
+    "PA0": { "physicalPin": 10, "role": "UPDI", "safeUse": "programming-only" },
+    "PA1": { "physicalPin": 11, "role": "I2C_SDA", "safeUse": "blocked-pending-voltage-proof" },
+    "PA2": { "physicalPin": 12, "role": "I2C_SCL", "safeUse": "blocked-pending-voltage-proof" },
+    "PA3": { "physicalPin": 13, "role": "TPL5010_RSTN_SENSE", "safeUse": "blocked-pending-divider-proof" },
+    "PA4": { "physicalPin": 2, "role": "STM811_RSTN_SENSE", "safeUse": "blocked-pending-divider-proof" },
+    "PA5": { "physicalPin": 3, "role": "ESP32_EN_OPEN_DRAIN", "safeUse": "open-drain-only" },
+    "PA6": { "physicalPin": 4, "role": "UNUSED" },
+    "PA7": { "physicalPin": 5, "role": "UNUSED" },
+    "PB0": { "physicalPin": 9, "role": "UNUSED" },
+    "PB1": { "physicalPin": 8, "role": "UNUSED" },
+    "PB2": { "physicalPin": 7, "role": "UNUSED" },
+    "PB3": { "physicalPin": 6, "role": "UNUSED" }
+  },
+  "modes": {
+    "M0": { "status": "active-target", "disabledFeatures": [] },
+    "M2": { "status": "planned", "inherits": "M0", "disabledFeatures": null, "note": "Human must identify the features disabled by M2 before implementation." }
+  },
+  "unknownsBlockingProduction": [
+    "Exact ESP32-S3 part number and module variant",
+    "Flash size and mode",
+    "ATtiny404 actual supply and I/O voltage",
+    "Exact MCP1 and MCP2 part numbers and register maps",
+    "Ethernet controller/PHY and clocking",
+    "RS485 transceiver, direction control, termination and field protocol",
+    "LoRa module, baud rate and protocol",
+    "OLED I2C address",
+    "Power input range, protection and current budget",
+    "Bootloader, recovery and QC limits"
+  ]
+}

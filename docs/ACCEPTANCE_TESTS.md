@@ -31,3 +31,20 @@
 - Hardware watchdog behavior
 - EMC, thermal, and production QC limits
 
+## TMM V6 R0 M0 bring-up MVP
+
+Host-side contract tests:
+
+- hardware profile identifies `TMM_V6_R0_M0`, ESP32-S3, ATtiny404, and source gid;
+- I2C, SPI, LoRa UART, RS485 UART, SD, and Ethernet pins match the workbook;
+- unknown part numbers and protocols remain explicit null/blocked values;
+- the sketch does not initialize unverified Ethernet, MCP, LoRa, or RS485 drivers.
+
+Manual board checks, only after module/flash/power/recovery settings are verified:
+
+1. Flash the bring-up sketch and capture the complete serial boot log.
+2. Run `check-i2c`; compare responding addresses with the profile.
+3. Run `gpio` while operating each selector/button and record transitions.
+4. Insert a non-production SD card and run `probe-sd`.
+5. Do not continue to active peripheral drivers when the `blocked` list is non-empty.
+

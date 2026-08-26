@@ -27,3 +27,13 @@
 - Decision: GitHub stores source and release artifacts; the local hardware portal controls approved/recommended status and QC history.
 - Reason: Code publication and hardware release approval are different responsibilities.
 
+## D-005 — M0 passive bring-up before active drivers
+
+- Status: Accepted for MVP bring-up
+- Evidence: `Modul Master.xlsx`, tab `TMM_V6_R0_M0`, received 2026-08-26.
+- Decision: Capture the verified M0 pin map in a machine-readable profile and begin with passive GPIO reads, I2C discovery, and an operator-triggered SD probe.
+- Reason: The workbook confirms bus pins but does not identify several device types or communication contracts.
+- Safety boundary: Do not transmit over LoRa/RS485 or write MCP1/MCP2, Ethernet, or ATtiny404 registers until their exact contracts are confirmed.
+- Toolchain assumption: The MVP is an Arduino sketch for convenient bring-up only. The production framework remains undecided.
+- Consequence: The sketch can establish device presence and wiring continuity but cannot validate every peripheral function.
+

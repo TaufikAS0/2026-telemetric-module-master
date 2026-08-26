@@ -28,6 +28,16 @@ The simulator provides:
 It models a TMM master and virtual expansion modules. It does not emulate
 electrical signaling or prove compatibility with physical hardware.
 
+## TMM V6 R0 M0 hardware bring-up
+
+An evidence-backed, non-production diagnostic sketch and machine-readable pin
+profile now live under `firmware/bringup/tmm_v6_r0_m0` and
+`hardware/profiles/TMM_V6_R0_M0.json`.
+
+Read the bring-up README and resolve the listed module, power, voltage, and
+recovery unknowns before flashing. The sketch defaults to passive inspection
+and intentionally does not guess unverified peripheral drivers or protocols.
+
 ## Handoff to the office computer
 
 1. Copy or clone this repository on the office computer.
