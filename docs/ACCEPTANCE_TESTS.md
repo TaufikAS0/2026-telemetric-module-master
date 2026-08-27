@@ -43,6 +43,13 @@ Host-side contract tests:
 - heartbeat interval is 1000 ms, below the operator-stated five-second reset window;
 - Wi-Fi connection/retry is nonblocking, credentials are provisioned through
   Serial/NVS, and no credential is compiled into the generic BIN.
+- SSD1306 writes begin only after a runtime response at 0x3C or 0x3D, and the
+  display refresh services the watchdog between bounded I2C chunks.
+- ArduinoOTA starts only with Wi-Fi plus a provisioned password, accepts the
+  app-only image, and services MCP1B4 around OTA handling and progress.
+- the generated QC hotspot uses AP+STA mode, wildcard captive DNS, common OS
+  probe routes, and services MCP1B4 around DNS/HTTP handling;
+- QC web actions are restricted to I2C scan, OLED refresh, and Wi-Fi reconnect.
 
 Manual board checks, only after module/flash/power/recovery settings are verified:
 
@@ -56,4 +63,14 @@ Manual board checks, only after module/flash/power/recovery settings are verifie
 6. Power-cycle the board, run `wifi`, and verify the NVS configuration reconnects.
 7. Run `wifi-clear`, power-cycle again, and verify the board remains unprovisioned.
 8. Do not continue to other active peripheral drivers when the `blocked` list is non-empty.
+9. Run `oled`; verify the detected address, readable orientation, Wi-Fi status,
+   and that the OLED IP equals the IP in the serial `wifi` log.
+10. Run `ota-set <password>`, confirm `ota` reports ready, then upload the
+    app-only `.ino.bin` from Arduino IDE over the reported IP.
+11. During OTA, scope MCP1B4 and verify no heartbeat gap approaches five seconds;
+    after reboot, verify the new sketch version and test USB recovery.
+12. Join the generated `TMM-M0-xxxxxx` hotspot and verify the captive page opens;
+    if it does not auto-open, browse to the AP IP shown on OLED/serial.
+13. Verify status and the three bounded controls from both the hotspot and the
+    station/LAN IP, while confirming no heartbeat gap approaches five seconds.
 

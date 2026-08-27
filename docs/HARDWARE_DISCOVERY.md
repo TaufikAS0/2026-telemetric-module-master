@@ -10,12 +10,13 @@ schematics, PCB inspection, datasheets, or measured evidence.
 | Power | Input range, rails, protection, current budget | Unknown |
 | Flash | Size and mode | Partial: workbook warns GPIO35-GPIO37 are used by 8 MB RAM; RAM type, flash size/mode and memory parts remain unknown |
 | Ethernet | PHY/controller, interface, pins, clocking | Partial: SPI GPIO11/12/13, CS GPIO10, INT GPIO48, reset MCP1B3; controller/PHY and clocking unknown |
-| Wi-Fi | Required or prohibited, antenna constraints | Unknown |
+| Wi-Fi | Required or prohibited, antenna constraints | Partial: bring-up uses concurrent open QC AP and provisioned station mode; production antenna, authentication and RF constraints remain unknown |
 | Field bus | RS485/CAN/other, transceiver, termination | Partial: RS485 ESP RX GPIO17/TX GPIO18; transceiver, direction control, termination and protocol unknown |
 | I/O | Pin map, voltage levels, safe boot states | Partial: M0 workbook pin map captured in `hardware/profiles/TMM_V6_R0_M0.json`; safe states and ATtiny voltage conflict unresolved |
 | Storage | NVS/filesystem requirements and endurance | Partial: bring-up Wi-Fi settings use Preferences/NVS; encryption, endurance and production layout remain unknown |
-| Security | Device identity and provisioning method | Unknown |
-| Recovery | Bootloader and physical recovery procedure | Unknown |
+| Display | Controller, address, geometry, orientation | Partial: workbook identifies SSD1306; controller geometry is 128x64, address is detected at runtime from 0x3C/0x3D, orientation remains unverified |
+| Security | Device identity and provisioning method | Partial: OTA has a separately provisioned password; the captive QC AP/HTTP page is explicitly unauthenticated bench-only behavior, while production identity and provisioning remain unknown |
+| Recovery | Bootloader and physical recovery procedure | Partial: build uses dual OTA app slots and password-protected ArduinoOTA; USB recovery, signed images and rollback behavior remain unknown |
 | QC fixture | Connections and measurable pass limits | Unknown |
 
 ## Evidence rules

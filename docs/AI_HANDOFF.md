@@ -16,7 +16,7 @@ only after the hardware and communication contracts are confirmed.
 - PCB revision: TMM V6 R0 mode M0 identified by workbook; schematic revision unknown
 - Physical interfaces: unknown
 - Production firmware status: not started
-- Bring-up firmware status: passive M0 diagnostic MVP added with MCP1B4 heartbeat and runtime Serial/NVS Wi-Fi provisioning; not production firmware
+- Bring-up firmware status: M0 diagnostic MVP added with MCP1B4 heartbeat, runtime Serial/NVS Wi-Fi provisioning, SSD1306 Wi-Fi/IP display, password-protected ArduinoOTA, and an AP+STA captive QC dashboard with bounded controls; not production firmware
 
 ## Decisions already made
 

@@ -95,3 +95,47 @@ test("Wi-Fi credentials are provisioned at runtime and excluded from the build s
   assert.doesNotMatch(sketch, /wifi_secrets\.h|TMM_WIFI_SSID|TMM_WIFI_PASSWORD/);
   assert.match(gitignore, /firmware\/\*\*\/wifi_secrets\.h/);
 });
+
+test("SSD1306 OLED is detected at runtime and shows the connected IP", async () => {
+  const [profile, sketch] = await Promise.all([
+    loadProfile(),
+    readFile(sketchUrl, "utf8")
+  ]);
+  const oled = profile.buses.i2c.devices.find((device) => device.label === "OLED_SSD1306");
+  assert.equal(oled.exactPart, "SSD1306");
+  assert.equal(oled.address, null);
+  assert.match(sketch, /OLED_I2C_CANDIDATES\[\] = \{0x3C, 0x3D\}/);
+  assert.match(sketch, /if \(!i2cResponds\(candidate\)\) continue;/);
+  assert.match(sketch, /oledDrawText\(0, 32, WiFi\.localIP\(\)\.toString\(\)\)/);
+  assert.match(sketch, /if \(\(offset & 0x7F\) == 0\) serviceHeartbeat\(\)/);
+  assert.ok(sketch.indexOf("heartbeatReady = initializeHeartbeat()") < sketch.indexOf("initializeOled()"));
+  assert.ok(sketch.indexOf("initializeOled()") < sketch.indexOf("startWifi()"));
+});
+
+test("Arduino OTA is password provisioned and keeps the watchdog serviced", async () => {
+  const sketch = await readFile(sketchUrl, "utf8");
+  assert.match(sketch, /#include <ArduinoOTA\.h>/);
+  assert.match(sketch, /preferences\.putString\("password", password\)/);
+  assert.match(sketch, /ArduinoOTA\.setPassword\(otaPassword\.c_str\(\)\)/);
+  assert.match(sketch, /ArduinoOTA\.setHostname\("tmm-v6-r0-m0"\)/);
+  assert.match(sketch, /serviceHeartbeat\(\);\s+ArduinoOTA\.handle\(\);\s+serviceHeartbeat\(\);/);
+  assert.match(sketch, /ArduinoOTA\.onProgress/);
+  assert.match(sketch, /command\.startsWith\("ota-set "\)/);
+  assert.doesNotMatch(sketch, /setPassword\("[^\"]+"\)/);
+});
+
+test("QC portal supports captive AP and LAN access without unsafe drivers", async () => {
+  const sketch = await readFile(sketchUrl, "utf8");
+  assert.match(sketch, /#include <DNSServer\.h>/);
+  assert.match(sketch, /#include <WebServer\.h>/);
+  assert.match(sketch, /WiFi\.mode\(WIFI_AP_STA\)/);
+  assert.match(sketch, /WiFi\.softAP\(qcApSsid\.c_str\(\)\)/);
+  assert.match(sketch, /dnsServer\.start\(53, "\*", WiFi\.softAPIP\(\)\)/);
+  assert.match(sketch, /"\/generate_204"/);
+  assert.match(sketch, /"\/hotspot-detect\.html"/);
+  assert.match(sketch, /dnsServer\.processNextRequest\(\);\s+serviceHeartbeat\(\);\s+webServer\.handleClient\(\);\s+serviceHeartbeat\(\);/);
+  assert.match(sketch, /action == "i2c-scan"/);
+  assert.match(sketch, /action == "oled-refresh"/);
+  assert.match(sketch, /action == "wifi-reconnect"/);
+  assert.doesNotMatch(sketch, /action == "(?:ethernet|lora|rs485|attiny)/i);
+});
