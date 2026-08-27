@@ -5,6 +5,7 @@ import { test } from "node:test";
 const profileUrl = new URL("../hardware/profiles/TMM_V6_R0_M0.json", import.meta.url);
 const headerUrl = new URL("../firmware/bringup/tmm_v6_r0_m0/tmm_v6_r0_m0_pins.h", import.meta.url);
 const sketchUrl = new URL("../firmware/bringup/tmm_v6_r0_m0/tmm_v6_r0_m0.ino", import.meta.url);
+const webOtaUrl = new URL("../firmware/bringup/tmm_v6_r0_m0/tmm_web_ota.h", import.meta.url);
 const gitignoreUrl = new URL("../.gitignore", import.meta.url);
 
 async function loadProfile() {
@@ -127,6 +128,19 @@ test("Arduino OTA is password provisioned and keeps the watchdog serviced", asyn
   assert.doesNotMatch(sketch, /setPassword\("[^\"]+"\)/);
 });
 
+test("web OTA is authenticated, watchdog-aware, and isolated as a reusable module", async () => {
+  const sketch = await readFile(sketchUrl, "utf8");
+  const webOta = await readFile(webOtaUrl, "utf8");
+  assert.match(sketch, /#include "tmm_web_ota\.h"/);
+  assert.match(sketch, /webServer\.on\("\/api\/ota\/password", HTTP_POST/);
+  assert.match(sketch, /webOta\.begin\(webServer, otaPassword, serviceHeartbeat\)/);
+  assert.match(webOta, /server_->arg\("password"\) == \*password_/);
+  assert.match(webOta, /Update\.begin\(UPDATE_SIZE_UNKNOWN, U_FLASH\)/);
+  assert.match(webOta, /Update\.write\(upload\.buf, upload\.currentSize\)/);
+  assert.match(webOta, /service\(\);\s+if \(Update\.write/);
+  assert.doesNotMatch(webOta, /password\s*=\s*"[^"]+"/);
+});
+
 test("QC portal supports captive AP and LAN access without unsafe drivers", async () => {
   const sketch = await readFile(sketchUrl, "utf8");
   assert.match(sketch, /#include <DNSServer\.h>/);
@@ -164,6 +178,8 @@ test("embedded QC portal JavaScript parses successfully", async () => {
   const script = page.match(/<script>([\s\S]*?)<\/script>/)?.[1];
   assert.ok(script, "QC portal script is present");
   assert.doesNotThrow(() => new Function(script));
+  assert.match(page, /Update firmware OTA/);
+  assert.match(page, /Langkah berikutnya/);
 });
 
 test("mandatory QC covers confirmed peripherals and exports bypass reasons", async () => {

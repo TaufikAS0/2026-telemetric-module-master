@@ -51,7 +51,9 @@ ota-set <password>
 ```
 
 After Wi-Fi connects, the serial log reports hostname `tmm-v6-r0-m0` and its IP.
-Arduino IDE can then upload over the same network. OTA accepts the app image
+Arduino IDE can then upload over the same network. The QC portal also provides
+an authenticated **Update firmware OTA** card: enter or save the device OTA
+password, choose the app BIN, then select **Upload & restart**. Both OTA paths accept the app image
 `tmm_v6_r0_m0.ino.bin`; the 4 MB merged image is for full USB flashing and must
 not be sent to the OTA endpoint. Use `ota-clear` to disable OTA access.
 
@@ -65,10 +67,9 @@ is available at the logged LAN IP to clients on that network.
 
 The dashboard scans nearby Wi-Fi networks asynchronously, lets the operator
 select an SSID and store its password in NVS, then reports heartbeat, AP/LAN
-networking, OLED, and OTA state. Safe QC actions cover heartbeat pulse, I2C
-discovery, passive GPIO snapshot, OLED refresh, and Wi-Fi reconnect. Ethernet,
-RS485, MCP2, and ATtiny controls remain locked because their
-component/protocol/electrical contracts are not confirmed. The hotspot is
+networking, OLED, and OTA state. A progress panel highlights the next required
+QC step. Confirmed M0 tests cover LEDs, buttons, AHT10, W5500, and SD; LoRa,
+RS485, MCP2, and ATtiny remain outside this workflow. The hotspot is
 intentionally open and uses HTTP for bench QC discovery, so it must not be
 treated as a production control surface or exposed to an untrusted network.
 

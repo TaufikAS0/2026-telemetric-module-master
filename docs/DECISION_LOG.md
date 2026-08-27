@@ -104,3 +104,12 @@
 - Ethernet display: After W5500 link and DHCP succeed, OLED changes to ETH IP mode.
 - Evidence boundary: Automated compile/tests do not prove physical QC; exported operator JSON is the evidence record.
 
+## D-013 — Guided portal and authenticated web OTA
+
+- Status: Accepted for bring-up QC
+- Observed defect: The live portal could render `OFFLINE` while its status endpoint responded because the JSON response contained one extra closing brace.
+- Decision: Correct the status JSON, highlight the next incomplete mandatory QC item, show overall progress, and expose authenticated app-BIN upload beside the existing Arduino network OTA.
+- Module boundary: Keep hardware pins in `tmm_v6_r0_m0_pins.h` and isolate the reusable HTTP upload lifecycle in `tmm_web_ota.h`. The product-specific page and QC actions remain in the sketch because they encode the TMM workflow.
+- Image boundary: Web OTA accepts only the app `.ino.bin`; merged/full-flash images are not supported. Heartbeat servicing brackets flash writes and the device restarts only after `Update.end(true)` succeeds.
+- Evidence boundary: Compilation proves the image fits and links. Portal interaction, update recovery, rollback behavior, and physical QC remain hardware tests.
+

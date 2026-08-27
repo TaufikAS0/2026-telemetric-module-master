@@ -10,6 +10,7 @@
 #include <WiFi.h>
 
 #include "tmm_v6_r0_m0_pins.h"
+#include "tmm_web_ota.h"
 
 using namespace tmm_m0;
 
@@ -54,8 +55,9 @@ int bootInitialState = HIGH;
 int changeDisplayInitialState = HIGH;
 bool ethernetReady = false;
 IPAddress ethernetIp;
+TmmWebOtaUploader webOta;
 
-void startWifi();
+void startWifi(void);
 
 bool mcp1WriteRegister(uint8_t registerAddress, uint8_t value) {
   Wire.beginTransmission(MCP1_I2C_ADDRESS);
@@ -496,13 +498,14 @@ String gpioSnapshotJson() {
 const char QC_PORTAL_HTML[] PROGMEM = R"QC_HTML(
 <!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TMM QC</title><style>
 :root{font-family:Inter,system-ui,sans-serif;color:#eaf2f8;background:#071019}*{box-sizing:border-box}body{max-width:900px;margin:auto;padding:18px;background:radial-gradient(circle at top right,#10375c 0,transparent 38%)}header{display:flex;align-items:center;justify-content:space-between;margin:10px 0 20px}h1{font-size:1.45rem;margin:0}.muted{color:#8ea5b9}.pill{padding:7px 11px;border-radius:99px;background:#152b3d;font-size:.8rem}.steps{display:flex;gap:7px;margin:0 0 18px}.step{flex:1;padding:9px;border-radius:9px;background:#112331;color:#8ea5b9;text-align:center;font-size:.82rem}.step.on{background:#1368ce;color:white}.card{background:#101f2b;border:1px solid #263d4e;border-radius:16px;padding:17px;margin:12px 0;box-shadow:0 12px 28px #0004}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:11px}.row{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid #203544}.row:last-child{border:0}.value{font-family:ui-monospace,monospace;text-align:right}.ok{color:#55e68a}.bad{color:#ffb45e}.networks{display:grid;gap:8px;max-height:250px;overflow:auto;margin:12px 0}.network{display:flex;justify-content:space-between;align-items:center;width:100%;padding:12px;background:#162d3d;border:1px solid #29495e;border-radius:10px;color:white;text-align:left}.network.selected{border-color:#49a3ff;background:#173f61}input{width:100%;padding:12px;background:#091620;border:1px solid #345168;border-radius:9px;color:white;margin:7px 0}button{padding:11px 14px;border:0;border-radius:9px;background:#287fe0;color:white;font-weight:700;cursor:pointer}button.secondary{background:#263d4e}button:disabled{opacity:.45;cursor:not-allowed}.actions{display:flex;gap:8px;flex-wrap:wrap}.actions button{flex:1;min-width:145px}.log{white-space:pre-wrap;background:#08131c;border-radius:9px;padding:12px;min-height:45px;color:#9fc0d7;font-family:ui-monospace,monospace;font-size:.82rem}.locked{opacity:.62}.warn{color:#ffbd66;font-size:.86rem}@media(max-width:520px){.steps{display:grid;grid-template-columns:1fr 1fr}.actions{display:grid}.actions button{width:100%}}
-.tutorial{position:fixed;right:16px;top:76px;width:290px}.qcitem{padding:11px 0;border-bottom:1px solid #294052}.approve{background:#16834a}.bypass{background:#8b5b18}@media(min-width:1000px){body{margin-left:calc((100vw - 1220px)/2);margin-right:330px}}@media(max-width:999px){.tutorial{position:static;width:auto}}
+.tutorial{position:fixed;right:16px;top:76px;width:300px}.qcitem{padding:14px 0;border-bottom:1px solid #294052}.qcitem.active{border-left:4px solid #49a3ff;padding-left:12px;background:#0d2738}.approve{background:#16834a}.bypass{background:#8b5b18}.next{padding:12px;border-radius:10px;background:#123652;margin:10px 0}.progressbar{height:8px;background:#243948;border-radius:99px;overflow:hidden}.progressbar i{display:block;height:100%;background:#55e68a;width:0;transition:width .25s}.otaBox{border-color:#356b91}.uploadProgress{height:9px;background:#243948;border-radius:99px;overflow:hidden;margin:10px 0}.uploadProgress i{display:block;height:100%;width:0;background:#49a3ff;transition:width .15s}@media(min-width:1000px){body{margin-left:calc((100vw - 1240px)/2);margin-right:340px}}@media(max-width:999px){.tutorial{position:static;width:auto}}
 </style></head><body><header><div><h1>TMM V6 R0 M0</h1><span class="muted">Portal QC lokal</span></div><span id="live" class="pill">Menghubungkan...</span></header>
 <div class="steps"><div class="step on">1 · Pilih Wi-Fi</div><div class="step">2 · Sambungkan</div><div class="step">3 · Jalankan QC</div></div>
 <section class="card"><h2>Jaringan lokal</h2><p class="muted">Pilih jaringan yang terdeteksi. Hotspot QC tetap aktif saat perangkat tersambung ke LAN.</p><button id="scan" onclick="startScan()">Cari jaringan Wi-Fi</button><div id="networks" class="networks"><span class="muted">Tekan tombol untuk memindai.</span></div><input id="password" type="password" maxlength="63" placeholder="Password Wi-Fi (kosongkan untuk jaringan terbuka)"><div class="actions"><button id="connect" disabled onclick="connectWifi()">Sambungkan ke jaringan</button><button class="secondary" onclick="act('wifi-reconnect')">Hubungkan ulang</button></div><p class="warn">Password dikirim melalui HTTP hotspot dan disimpan di NVS; gunakan hanya pada meja QC terkontrol.</p></section>
 <section class="card"><h2>Status langsung</h2><div class="grid"><div><div class="row"><span>Heartbeat</span><span id="hb" class="value">...</span></div><div class="row"><span>Interval</span><span id="hi" class="value">...</span></div><div class="row"><span>OLED</span><span id="oled" class="value">...</span></div><div class="row"><span>OTA</span><span id="ota" class="value">...</span></div></div><div><div class="row"><span>Hotspot</span><span id="ap" class="value">...</span></div><div class="row"><span>AP IP / klien</span><span id="api" class="value">...</span></div><div class="row"><span>LAN Wi-Fi</span><span id="sta" class="value">...</span></div><div class="row"><span>LAN IP / RSSI</span><span id="lan" class="value">...</span></div></div></div></section>
-<section class="card"><h2>Tes QC wajib</h2><div class="qcitem"><b>1. LED 1–10</b><p class="muted">LED1 power harus tetap menyala; LED2–10 berkedip bersama lalu berurutan.</p><div class="actions"><button onclick="act('led-sequence')">Jalankan LED</button><button class="approve" onclick="approve('led')">Visual benar</button><button class="bypass" onclick="bypass('led')">Bypass</button></div></div><div class="qcitem"><b>2. Tombol BOOT & CHANGE DISPLAY</b><p class="muted">Tekan kedua tombol fisik sampai terdeteksi.</p><div class="actions"><button onclick="act('gpio-snapshot')">Baca tombol</button><button class="approve" onclick="approveButtons()">Tombol benar</button><button class="bypass" onclick="bypass('buttons')">Bypass</button></div></div><div class="qcitem"><b>3. AHT10</b><div class="actions"><button onclick="act('aht10-read')">Baca suhu</button><button class="approve" onclick="approve('aht')">Nilai benar</button><button class="bypass" onclick="bypass('aht')">Bypass</button></div></div><div class="qcitem"><b>4. Ethernet W5500</b><p class="muted">Colok LAN. OLED menampilkan ETH IP setelah DHCP berhasil.</p><div class="actions"><button onclick="act('ethernet-test')">Tes Ethernet</button><button class="approve" onclick="approve('ethernet')">Koneksi benar</button><button class="bypass" onclick="bypass('ethernet')">Bypass</button></div></div><div class="qcitem"><b>5. Micro SD</b><div class="actions"><button onclick="act('sd-write')">Tulis & verifikasi</button><button class="approve" onclick="approve('sd')">SD benar</button><button class="bypass" onclick="bypass('sd')">Bypass</button></div></div><h3>Hasil</h3><div id="log" class="log">Belum ada tes.</div></section>
-<aside class="card tutorial"><h2>Tutorial QC</h2><p>Kerjakan dari atas ke bawah. Semua langkah wajib PASS atau BYPASS beralasan.</p><div id="progress"></div><button id="export" disabled onclick="exportQc()">Export laporan JSON</button><p class="warn">LoRa dilewati. Bypass adalah pengecualian, bukan bukti hardware PASS.</p></aside>
+<section class="card otaBox"><h2>Update firmware OTA</h2><p class="muted">Pilih file aplikasi <b>.ino.bin</b>. Jangan gunakan merged/flash image 4 MB.</p><input id="otaPassword" type="password" minlength="8" maxlength="63" placeholder="Password OTA perangkat"><input id="otaFile" type="file" accept=".bin,application/octet-stream"><div class="uploadProgress"><i id="otaBar"></i></div><div class="actions"><button onclick="saveOtaPassword()">Simpan password OTA</button><button id="otaUpload" onclick="uploadFirmware()">Upload & restart</button></div><p id="otaMessage" class="warn">Heartbeat tetap dilayani selama upload. Perangkat restart otomatis setelah update valid.</p></section>
+<section class="card"><h2>Tes QC wajib</h2><div class="qcitem" data-qc="led"><b>1. LED 1–10</b><p class="muted">LED1 power harus tetap menyala; LED2–10 berkedip bersama lalu berurutan.</p><div class="actions"><button onclick="act('led-sequence')">Jalankan LED</button><button class="approve" onclick="approve('led')">Visual benar</button><button class="bypass" onclick="bypass('led')">Bypass</button></div></div><div class="qcitem" data-qc="buttons"><b>2. Tombol BOOT & CHANGE DISPLAY</b><p class="muted">Tekan kedua tombol fisik sampai terdeteksi.</p><div class="actions"><button onclick="act('gpio-snapshot')">Baca tombol</button><button class="approve" onclick="approveButtons()">Tombol benar</button><button class="bypass" onclick="bypass('buttons')">Bypass</button></div></div><div class="qcitem" data-qc="aht"><b>3. AHT10</b><p class="muted">Suhu dan kelembapan harus tampil masuk akal secara visual.</p><div class="actions"><button onclick="act('aht10-read')">Baca suhu</button><button class="approve" onclick="approve('aht')">Nilai benar</button><button class="bypass" onclick="bypass('aht')">Bypass</button></div></div><div class="qcitem" data-qc="ethernet"><b>4. Ethernet W5500</b><p class="muted">Colok LAN. OLED menampilkan ETH IP setelah DHCP berhasil.</p><div class="actions"><button onclick="act('ethernet-test')">Tes Ethernet</button><button class="approve" onclick="approve('ethernet')">Koneksi benar</button><button class="bypass" onclick="bypass('ethernet')">Bypass</button></div></div><div class="qcitem" data-qc="sd"><b>5. Micro SD</b><p class="muted">Firmware menulis lalu membaca kembali file verifikasi.</p><div class="actions"><button onclick="act('sd-write')">Tulis & verifikasi</button><button class="approve" onclick="approve('sd')">SD benar</button><button class="bypass" onclick="bypass('sd')">Bypass</button></div></div><h3>Hasil perangkat</h3><div id="log" class="log">Mulai dari LED 1–10.</div></section>
+<aside class="card tutorial"><h2>Pemandu QC</h2><div class="progressbar"><i id="progressBar"></i></div><div id="next" class="next">Langkah berikutnya: LED 1–10</div><p>Kerjakan kartu yang disorot. Semua langkah wajib PASS atau BYPASS beralasan.</p><div id="progress"></div><button id="export" disabled onclick="exportQc()">Export laporan JSON</button><p class="warn">LoRa dilewati. Bypass adalah pengecualian, bukan bukti hardware PASS.</p></aside>
 <script>
 const q=id=>document.getElementById(id), ready=v=>v?'<span class="ok">READY</span>':'<span class="bad">NOT READY</span>';let selected='',lastStatus={};const qc={led:null,buttons:null,aht:null,ethernet:null,sd:null};
 async function refresh(){try{const s=await(await fetch('/api/status',{cache:'no-store'})).json();lastStatus=s;q('live').innerHTML='<span class="ok">● ONLINE</span>';q('hb').innerHTML=ready(s.heartbeat.ready);q('hi').textContent=s.heartbeat.intervalMs+' ms';q('ap').textContent=s.network.apSsid;q('api').textContent=s.network.apIp+' / '+s.network.clients;q('sta').innerHTML=ready(s.network.connected);q('lan').textContent=s.network.connected?s.network.lanIp+' / '+s.network.rssi+' dBm':'offline';q('oled').innerHTML=ready(s.oled.ready);q('ota').innerHTML=ready(s.ota.ready);document.querySelectorAll('.step')[1].classList.toggle('on',s.network.connected);document.querySelectorAll('.step')[2].classList.toggle('on',s.heartbeat.ready)}catch(e){q('live').innerHTML='<span class="bad">● OFFLINE</span>'}}
@@ -511,9 +514,11 @@ async function startScan(){q('scan').disabled=true;q('networks').textContent='Me
 async function pollScan(){try{const r=await fetch('/api/wifi/scan',{cache:'no-store'});const d=await r.json();if(d.state==='scanning'){setTimeout(pollScan,800);return}drawNetworks(d.networks||[])}catch(e){q('networks').textContent='Pemindaian gagal.'}q('scan').disabled=false}
 async function connectWifi(){if(!selected)return;q('connect').disabled=true;q('log').textContent='Menyambungkan ke '+selected+'...';const body=new URLSearchParams({ssid:selected,password:q('password').value});const r=await fetch('/api/wifi/connect',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});q('log').textContent=await r.text();q('password').value='';setTimeout(refresh,1200);q('connect').disabled=false}
 async function act(name){q('log').textContent='Menjalankan '+name+'...';try{const r=await fetch('/api/action?name='+encodeURIComponent(name),{method:'POST'});const text=await r.text();try{q('log').textContent=JSON.stringify(JSON.parse(text),null,2)}catch(e){q('log').textContent=text}refresh();return r.ok}catch(e){q('log').textContent='Perintah gagal';return false}}
-function renderProgress(){q('progress').textContent='';Object.entries(qc).forEach(([id,v])=>{const d=document.createElement('div');d.className='row';d.innerHTML='<span>'+id.toUpperCase()+'</span><span class="value '+(v?.status==='pass'?'ok':v?'bad':'muted')+'">'+(v?.status?.toUpperCase()||'WAJIB')+'</span>';q('progress').appendChild(d)});q('export').disabled=!Object.values(qc).every(Boolean)}
+function renderProgress(){q('progress').textContent='';const entries=Object.entries(qc),done=entries.filter(([,v])=>v).length,next=entries.find(([,v])=>!v)?.[0];entries.forEach(([id,v])=>{const d=document.createElement('div');d.className='row';d.innerHTML='<span>'+id.toUpperCase()+'</span><span class="value '+(v?.status==='pass'?'ok':v?'bad':'muted')+'">'+(v?.status?.toUpperCase()||'WAJIB')+'</span>';q('progress').appendChild(d)});q('progressBar').style.width=(done/entries.length*100)+'%';q('next').textContent=next?'Langkah berikutnya: '+next.toUpperCase():'QC lengkap — export laporan';document.querySelectorAll('[data-qc]').forEach(x=>x.classList.toggle('active',x.dataset.qc===next));q('export').disabled=done!==entries.length}
 function approve(id){qc[id]={status:'pass',at:new Date().toISOString()};renderProgress()}function approveButtons(){if(!lastStatus.buttons?.bootObserved||!lastStatus.buttons?.changeDisplayObserved){q('log').textContent='Tekan BOOT dan CHANGE DISPLAY terlebih dahulu.';return}approve('buttons')}
 function bypass(id){const reason=prompt('Alasan bypass '+id+':');if(!reason||!reason.trim()){q('log').textContent='Bypass ditolak: alasan wajib diisi.';return}qc[id]={status:'bypass',reason:reason.trim(),at:new Date().toISOString()};renderProgress()}
+async function saveOtaPassword(){const password=q('otaPassword').value;if(password.length<8){q('otaMessage').textContent='Password OTA minimal 8 karakter.';return}const r=await fetch('/api/ota/password',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({password})});q('otaMessage').textContent=await r.text();refresh()}
+function uploadFirmware(){const file=q('otaFile').files[0],password=q('otaPassword').value;if(!file){q('otaMessage').textContent='Pilih file .ino.bin terlebih dahulu.';return}if(!file.name.endsWith('.bin')){q('otaMessage').textContent='File harus berekstensi .bin.';return}if(password.length<8){q('otaMessage').textContent='Masukkan password OTA perangkat.';return}const xhr=new XMLHttpRequest(),body=new FormData();body.append('firmware',file,file.name);q('otaUpload').disabled=true;xhr.open('POST','/api/ota/upload?password='+encodeURIComponent(password));xhr.upload.onprogress=e=>{if(e.lengthComputable)q('otaBar').style.width=Math.round(e.loaded/e.total*100)+'%'};xhr.onload=()=>{q('otaMessage').textContent=xhr.responseText;q('otaPassword').value='';if(xhr.status>=300)q('otaUpload').disabled=false};xhr.onerror=()=>{q('otaMessage').textContent='Upload gagal: koneksi terputus.';q('otaUpload').disabled=false};xhr.send(body)}
 function exportQc(){const report={schemaVersion:1,product:'TMM',hardware:'TMM_V6_R0_M0',exportedAt:new Date().toISOString(),deviceStatus:lastStatus,results:qc,overall:Object.values(qc).every(v=>v?.status==='pass')?'pass':'pass-with-bypass'};const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'}));a.download='TMM_QC_'+Date.now()+'.json';a.click();URL.revokeObjectURL(a.href)}renderProgress();refresh();setInterval(refresh,2000);
 </script></body></html>)QC_HTML";
 
@@ -549,7 +554,7 @@ String qcStatusJson() {
   json += changeDisplayObserved ? F("true") : F("false");
   json += F("},\"ethernet\":{\"ready\":");
   json += ethernetReady ? F("true") : F("false");
-  json += F("}}}");
+  json += F("}}");
   return json;
 }
 
@@ -627,6 +632,24 @@ void connectWifiFromPortal() {
   startWifi();
 }
 
+void saveOtaPasswordFromPortal() {
+  const String password = webServer.arg("password");
+  if (password.length() < OTA_PASSWORD_MIN_LENGTH || password.length() > OTA_PASSWORD_MAX_LENGTH) {
+    webServer.send(400, "application/json", "{\"ok\":false,\"error\":\"password_length_must_be_8_to_63\"}");
+    return;
+  }
+  if (!saveOtaConfiguration(password)) {
+    webServer.send(500, "application/json", "{\"ok\":false,\"error\":\"save_failed\"}");
+    return;
+  }
+  if (otaReady) {
+    ArduinoOTA.end();
+    otaReady = false;
+  }
+  startOtaIfReady();
+  webServer.send(200, "application/json", "{\"ok\":true,\"otaPassword\":\"configured\"}");
+}
+
 void runQcAction() {
   const String action = webServer.arg("name");
   serviceHeartbeat();
@@ -693,6 +716,8 @@ void startQcPortal() {
   webServer.on("/api/wifi/scan", HTTP_POST, startWifiScan);
   webServer.on("/api/wifi/scan", HTTP_GET, sendWifiScanResult);
   webServer.on("/api/wifi/connect", HTTP_POST, connectWifiFromPortal);
+  webServer.on("/api/ota/password", HTTP_POST, saveOtaPasswordFromPortal);
+  webOta.begin(webServer, otaPassword, serviceHeartbeat);
   webServer.on("/generate_204", HTTP_ANY, redirectToQcPortal);
   webServer.on("/hotspot-detect.html", HTTP_ANY, redirectToQcPortal);
   webServer.on("/ncsi.txt", HTTP_ANY, redirectToQcPortal);
@@ -872,6 +897,7 @@ void loop() {
   serviceWifi();
   serviceQcPortal();
   serviceOta();
+  webOta.serviceRestart();
   while (Serial.available()) {
     const char character = static_cast<char>(Serial.read());
     if (character == '\n' || character == '\r') {
