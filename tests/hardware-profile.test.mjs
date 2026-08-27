@@ -139,3 +139,26 @@ test("QC portal supports captive AP and LAN access without unsafe drivers", asyn
   assert.match(sketch, /action == "wifi-reconnect"/);
   assert.doesNotMatch(sketch, /action == "(?:ethernet|lora|rs485|attiny)/i);
 });
+
+test("QC portal provisions a selected Wi-Fi network and exposes bounded tests", async () => {
+  const sketch = await readFile(sketchUrl, "utf8");
+  assert.match(sketch, /WiFi\.scanNetworks\(true, false\)/);
+  assert.match(sketch, /WiFi\.scanComplete\(\)/);
+  assert.match(sketch, /webServer\.on\("\/api\/wifi\/scan", HTTP_POST/);
+  assert.match(sketch, /webServer\.on\("\/api\/wifi\/scan", HTTP_GET/);
+  assert.match(sketch, /webServer\.on\("\/api\/wifi\/connect", HTTP_POST/);
+  assert.match(sketch, /saveWifiConfiguration\(ssid, password\)/);
+  assert.match(sketch, /action == "heartbeat-test"/);
+  assert.match(sketch, /action == "gpio-snapshot"/);
+  assert.match(sketch, /serviceHeartbeat\(\);\s+const int16_t count = WiFi\.scanComplete\(\)/);
+  assert.doesNotMatch(sketch, /\"password\"\s*:/);
+});
+
+test("embedded QC portal JavaScript parses successfully", async () => {
+  const sketch = await readFile(sketchUrl, "utf8");
+  const page = sketch.match(/R"QC_HTML\(([\s\S]*?)\)QC_HTML"/)?.[1];
+  assert.ok(page, "QC portal HTML is embedded");
+  const script = page.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+  assert.ok(script, "QC portal script is present");
+  assert.doesNotThrow(() => new Function(script));
+});

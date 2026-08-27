@@ -49,7 +49,10 @@ Host-side contract tests:
   app-only image, and services MCP1B4 around OTA handling and progress.
 - the generated QC hotspot uses AP+STA mode, wildcard captive DNS, common OS
   probe routes, and services MCP1B4 around DNS/HTTP handling;
-- QC web actions are restricted to I2C scan, OLED refresh, and Wi-Fi reconnect.
+- nearby Wi-Fi scanning is asynchronous, web provisioning reuses bounded NVS
+  validation, and neither saved SSID nor password is returned by status;
+- QC web actions are restricted to heartbeat test, I2C scan, passive GPIO
+  snapshot, OLED refresh, and Wi-Fi reconnect.
 
 Manual board checks, only after module/flash/power/recovery settings are verified:
 
@@ -73,4 +76,8 @@ Manual board checks, only after module/flash/power/recovery settings are verifie
     if it does not auto-open, browse to the AP IP shown on OLED/serial.
 13. Verify status and the three bounded controls from both the hotspot and the
     station/LAN IP, while confirming no heartbeat gap approaches five seconds.
+14. From the portal, scan Wi-Fi, select a bench SSID, enter its password, and
+    verify the device acquires a LAN IP without the QC hotspot disappearing.
+15. Run all safe QC actions and verify their JSON results. Confirm the locked
+    interfaces cannot be activated from the page.
 

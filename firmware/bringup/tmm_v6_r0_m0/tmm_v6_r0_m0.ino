@@ -362,20 +362,68 @@ void serviceOta() {
   serviceHeartbeat();
 }
 
+String jsonEscape(const String &value) {
+  String escaped;
+  escaped.reserve(value.length() + 8);
+  for (size_t index = 0; index < value.length(); ++index) {
+    const char character = value[index];
+    if (character == '\\' || character == '"') escaped += '\\';
+    escaped += character >= 0x20 ? character : '?';
+  }
+  return escaped;
+}
+
+String scanI2cJson() {
+  String json = F("{\"ok\":true,\"addresses\":[");
+  bool first = true;
+  for (uint8_t address = 1; address < 127; ++address) {
+    if ((address & 0x07) == 0) serviceHeartbeat();
+    if (!i2cResponds(address)) continue;
+    if (!first) json += ',';
+    char encoded[7];
+    snprintf(encoded, sizeof(encoded), "\"0x%02X\"", address);
+    json += encoded;
+    first = false;
+  }
+  json += F("]}");
+  return json;
+}
+
+String gpioSnapshotJson() {
+  String json;
+  json.reserve(300);
+  json += F("{\"ok\":true,\"gpio\":{");
+  json += F("\"loraAck\":"); json += digitalRead(LORA_ACK);
+  json += F(",\"loraAux\":"); json += digitalRead(LORA_AUX);
+  json += F(",\"loraLink\":"); json += digitalRead(LORA_LINK);
+  json += F(",\"selectorDmm\":"); json += digitalRead(SELECTOR_DMM);
+  json += F(",\"selectorMma\":"); json += digitalRead(SELECTOR_MMA);
+  json += F(",\"selectorWebserver\":"); json += digitalRead(SELECTOR_WEBSERVER);
+  json += F(",\"changeDisplay\":"); json += digitalRead(CHANGE_DISPLAY);
+  json += F(",\"boot\":"); json += digitalRead(BOOT_BUTTON);
+  json += F(",\"ethernetInt\":"); json += digitalRead(ETH_INT);
+  json += F("}}");
+  return json;
+}
+
 const char QC_PORTAL_HTML[] PROGMEM = R"QC_HTML(
-<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TMM M0 QC</title><style>
-:root{font-family:system-ui;color:#e8eef5;background:#0b1118}body{max-width:760px;margin:auto;padding:20px}h1{margin-bottom:4px}.sub{color:#91a4b7;margin-top:0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}.card{background:#16212d;border:1px solid #293949;border-radius:12px;padding:15px}.row{display:flex;justify-content:space-between;gap:12px;margin:7px 0}.v{font-family:monospace;text-align:right}.ok{color:#5ee18a}.bad{color:#ffbd66}button{width:100%;margin-top:9px;padding:11px;border:0;border-radius:8px;background:#2b78df;color:white;font-weight:700}#msg{min-height:24px;color:#91a4b7}.warn{color:#ffbd66;font-size:.9rem}</style></head>
-<body><h1>TMM V6 R0 M0</h1><p class="sub">QC bring-up portal</p><div class="grid">
-<section class="card"><b>Keselamatan</b><div class="row"><span>Heartbeat</span><span id="hb" class="v">...</span></div><div class="row"><span>Interval</span><span id="hi" class="v">...</span></div></section>
-<section class="card"><b>Jaringan</b><div class="row"><span>Hotspot</span><span id="ap" class="v">...</span></div><div class="row"><span>AP IP / klien</span><span id="api" class="v">...</span></div><div class="row"><span>LAN Wi-Fi</span><span id="sta" class="v">...</span></div><div class="row"><span>LAN IP / RSSI</span><span id="lan" class="v">...</span></div></section>
-<section class="card"><b>Perangkat</b><div class="row"><span>OLED</span><span id="oled" class="v">...</span></div><div class="row"><span>OTA</span><span id="ota" class="v">...</span></div></section>
-<section class="card"><b>Kontrol aman</b><button onclick="act('i2c-scan')">Scan I2C</button><button onclick="act('oled-refresh')">Refresh OLED</button><button onclick="act('wifi-reconnect')">Reconnect Wi-Fi</button></section>
-</div><p id="msg"></p><p class="warn">Hotspot dan HTTP ini terbuka untuk QC meja kerja. Jangan gunakan pada jaringan produksi.</p>
+<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TMM QC</title><style>
+:root{font-family:Inter,system-ui,sans-serif;color:#eaf2f8;background:#071019}*{box-sizing:border-box}body{max-width:900px;margin:auto;padding:18px;background:radial-gradient(circle at top right,#10375c 0,transparent 38%)}header{display:flex;align-items:center;justify-content:space-between;margin:10px 0 20px}h1{font-size:1.45rem;margin:0}.muted{color:#8ea5b9}.pill{padding:7px 11px;border-radius:99px;background:#152b3d;font-size:.8rem}.steps{display:flex;gap:7px;margin:0 0 18px}.step{flex:1;padding:9px;border-radius:9px;background:#112331;color:#8ea5b9;text-align:center;font-size:.82rem}.step.on{background:#1368ce;color:white}.card{background:#101f2b;border:1px solid #263d4e;border-radius:16px;padding:17px;margin:12px 0;box-shadow:0 12px 28px #0004}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:11px}.row{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid #203544}.row:last-child{border:0}.value{font-family:ui-monospace,monospace;text-align:right}.ok{color:#55e68a}.bad{color:#ffb45e}.networks{display:grid;gap:8px;max-height:250px;overflow:auto;margin:12px 0}.network{display:flex;justify-content:space-between;align-items:center;width:100%;padding:12px;background:#162d3d;border:1px solid #29495e;border-radius:10px;color:white;text-align:left}.network.selected{border-color:#49a3ff;background:#173f61}input{width:100%;padding:12px;background:#091620;border:1px solid #345168;border-radius:9px;color:white;margin:7px 0}button{padding:11px 14px;border:0;border-radius:9px;background:#287fe0;color:white;font-weight:700;cursor:pointer}button.secondary{background:#263d4e}button:disabled{opacity:.45;cursor:not-allowed}.actions{display:flex;gap:8px;flex-wrap:wrap}.actions button{flex:1;min-width:145px}.log{white-space:pre-wrap;background:#08131c;border-radius:9px;padding:12px;min-height:45px;color:#9fc0d7;font-family:ui-monospace,monospace;font-size:.82rem}.locked{opacity:.62}.warn{color:#ffbd66;font-size:.86rem}@media(max-width:520px){.steps{display:grid;grid-template-columns:1fr 1fr}.actions{display:grid}.actions button{width:100%}}
+</style></head><body><header><div><h1>TMM V6 R0 M0</h1><span class="muted">Portal QC lokal</span></div><span id="live" class="pill">Menghubungkan...</span></header>
+<div class="steps"><div class="step on">1 · Pilih Wi-Fi</div><div class="step">2 · Sambungkan</div><div class="step">3 · Jalankan QC</div></div>
+<section class="card"><h2>Jaringan lokal</h2><p class="muted">Pilih jaringan yang terdeteksi. Hotspot QC tetap aktif saat perangkat tersambung ke LAN.</p><button id="scan" onclick="startScan()">Cari jaringan Wi-Fi</button><div id="networks" class="networks"><span class="muted">Tekan tombol untuk memindai.</span></div><input id="password" type="password" maxlength="63" placeholder="Password Wi-Fi (kosongkan untuk jaringan terbuka)"><div class="actions"><button id="connect" disabled onclick="connectWifi()">Sambungkan ke jaringan</button><button class="secondary" onclick="act('wifi-reconnect')">Hubungkan ulang</button></div><p class="warn">Password dikirim melalui HTTP hotspot dan disimpan di NVS; gunakan hanya pada meja QC terkontrol.</p></section>
+<section class="card"><h2>Status langsung</h2><div class="grid"><div><div class="row"><span>Heartbeat</span><span id="hb" class="value">...</span></div><div class="row"><span>Interval</span><span id="hi" class="value">...</span></div><div class="row"><span>OLED</span><span id="oled" class="value">...</span></div><div class="row"><span>OTA</span><span id="ota" class="value">...</span></div></div><div><div class="row"><span>Hotspot</span><span id="ap" class="value">...</span></div><div class="row"><span>AP IP / klien</span><span id="api" class="value">...</span></div><div class="row"><span>LAN Wi-Fi</span><span id="sta" class="value">...</span></div><div class="row"><span>LAN IP / RSSI</span><span id="lan" class="value">...</span></div></div></div></section>
+<section class="card"><h2>Tes QC aman</h2><div class="actions"><button onclick="act('heartbeat-test')">Tes heartbeat</button><button onclick="act('i2c-scan')">Scan I2C</button><button onclick="act('gpio-snapshot')">Baca GPIO</button><button onclick="act('oled-refresh')">Refresh OLED</button><button class="secondary" onclick="testAll()">Jalankan semua</button></div><h3>Hasil</h3><div id="log" class="log">Belum ada tes.</div></section>
+<section class="card locked"><h2>Kontrol menunggu data hardware</h2><p>Ethernet · LoRa · RS485 · MCP2 · ATtiny404</p><p class="muted">Dikunci sampai tipe komponen, protokol, dan batas listrik dikonfirmasi.</p></section>
 <script>
-const q=id=>document.getElementById(id), yn=v=>v?'<span class="ok">READY</span>':'<span class="bad">NOT READY</span>';
-async function refresh(){try{let s=await(await fetch('/api/status',{cache:'no-store'})).json();q('hb').innerHTML=yn(s.heartbeat.ready);q('hi').textContent=s.heartbeat.intervalMs+' ms';q('ap').textContent=s.network.apSsid;q('api').textContent=s.network.apIp+' / '+s.network.clients;q('sta').innerHTML=yn(s.network.connected);q('lan').textContent=s.network.connected?s.network.lanIp+' / '+s.network.rssi+' dBm':'offline';q('oled').innerHTML=yn(s.oled.ready);q('ota').innerHTML=yn(s.ota.ready)}catch(e){q('msg').textContent='Status gagal dibaca'}}
-async function act(name){q('msg').textContent='Menjalankan '+name+'...';try{let r=await fetch('/api/action?name='+encodeURIComponent(name),{method:'POST'});q('msg').textContent=await r.text();refresh()}catch(e){q('msg').textContent='Perintah gagal'}}refresh();setInterval(refresh,2000);
+const q=id=>document.getElementById(id), ready=v=>v?'<span class="ok">READY</span>':'<span class="bad">NOT READY</span>';let selected='';
+async function refresh(){try{const s=await(await fetch('/api/status',{cache:'no-store'})).json();q('live').innerHTML='<span class="ok">● ONLINE</span>';q('hb').innerHTML=ready(s.heartbeat.ready);q('hi').textContent=s.heartbeat.intervalMs+' ms';q('ap').textContent=s.network.apSsid;q('api').textContent=s.network.apIp+' / '+s.network.clients;q('sta').innerHTML=ready(s.network.connected);q('lan').textContent=s.network.connected?s.network.lanIp+' / '+s.network.rssi+' dBm':'offline';q('oled').innerHTML=ready(s.oled.ready);q('ota').innerHTML=ready(s.ota.ready);document.querySelectorAll('.step')[1].classList.toggle('on',s.network.connected);document.querySelectorAll('.step')[2].classList.toggle('on',s.heartbeat.ready)}catch(e){q('live').innerHTML='<span class="bad">● OFFLINE</span>'}}
+function drawNetworks(items){const box=q('networks');box.textContent='';if(!items.length){box.textContent='Tidak ada jaringan ditemukan.';return}items.forEach(n=>{const b=document.createElement('button');b.className='network';const name=document.createElement('span');name.textContent=n.ssid;const detail=document.createElement('span');detail.textContent=n.rssi+' dBm '+(n.secure?'🔒':'');b.append(name,detail);b.onclick=()=>{selected=n.ssid;document.querySelectorAll('.network').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');q('connect').disabled=false};box.appendChild(b)})}
+async function startScan(){q('scan').disabled=true;q('networks').textContent='Memindai jaringan...';await fetch('/api/wifi/scan',{method:'POST'});pollScan()}
+async function pollScan(){try{const r=await fetch('/api/wifi/scan',{cache:'no-store'});const d=await r.json();if(d.state==='scanning'){setTimeout(pollScan,800);return}drawNetworks(d.networks||[])}catch(e){q('networks').textContent='Pemindaian gagal.'}q('scan').disabled=false}
+async function connectWifi(){if(!selected)return;q('connect').disabled=true;q('log').textContent='Menyambungkan ke '+selected+'...';const body=new URLSearchParams({ssid:selected,password:q('password').value});const r=await fetch('/api/wifi/connect',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});q('log').textContent=await r.text();q('password').value='';setTimeout(refresh,1200);q('connect').disabled=false}
+async function act(name){q('log').textContent='Menjalankan '+name+'...';try{const r=await fetch('/api/action?name='+encodeURIComponent(name),{method:'POST'});const text=await r.text();try{q('log').textContent=JSON.stringify(JSON.parse(text),null,2)}catch(e){q('log').textContent=text}refresh();return r.ok}catch(e){q('log').textContent='Perintah gagal';return false}}
+async function testAll(){for(const name of ['heartbeat-test','i2c-scan','gpio-snapshot','oled-refresh'])await act(name);q('log').textContent='Semua tes aman selesai. Lihat log serial untuk riwayat lengkap.'}refresh();setInterval(refresh,2000);
 </script></body></html>)QC_HTML";
 
 String qcStatusJson() {
@@ -418,25 +466,102 @@ void redirectToQcPortal() {
   webServer.send(302, "text/plain", "");
 }
 
+void startWifiScan() {
+  serviceHeartbeat();
+  WiFi.scanDelete();
+  const int16_t result = WiFi.scanNetworks(true, false);
+  serviceHeartbeat();
+  if (result == WIFI_SCAN_FAILED) {
+    webServer.send(500, "application/json", "{\"state\":\"failed\"}");
+    return;
+  }
+  webServer.send(202, "application/json", "{\"state\":\"scanning\"}");
+}
+
+void sendWifiScanResult() {
+  serviceHeartbeat();
+  const int16_t count = WiFi.scanComplete();
+  if (count == WIFI_SCAN_RUNNING) {
+    webServer.send(202, "application/json", "{\"state\":\"scanning\"}");
+    return;
+  }
+  if (count == WIFI_SCAN_FAILED) {
+    webServer.send(409, "application/json", "{\"state\":\"idle\",\"networks\":[]}");
+    return;
+  }
+
+  String json = F("{\"state\":\"complete\",\"networks\":[");
+  bool first = true;
+  const int16_t limitedCount = count > 20 ? 20 : count;
+  for (int16_t index = 0; index < limitedCount; ++index) {
+    serviceHeartbeat();
+    const String ssid = WiFi.SSID(index);
+    if (!ssid.length()) continue;
+    if (!first) json += ',';
+    json += F("{\"ssid\":\"");
+    json += jsonEscape(ssid);
+    json += F("\",\"rssi\":");
+    json += WiFi.RSSI(index);
+    json += F(",\"secure\":");
+    json += WiFi.encryptionType(index) == WIFI_AUTH_OPEN ? F("false") : F("true");
+    json += '}';
+    first = false;
+  }
+  json += F("]}");
+  webServer.sendHeader(F("Cache-Control"), F("no-store"));
+  webServer.send(200, "application/json", json);
+  WiFi.scanDelete();
+  serviceHeartbeat();
+}
+
+void connectWifiFromPortal() {
+  const String ssid = webServer.arg("ssid");
+  const String password = webServer.arg("password");
+  if (!ssid.length() || ssid.length() > WIFI_SSID_MAX_LENGTH || password.length() > WIFI_PASSWORD_MAX_LENGTH) {
+    webServer.send(400, "application/json", "{\"ok\":false,\"error\":\"invalid_credentials_length\"}");
+    return;
+  }
+  if (!saveWifiConfiguration(ssid, password)) {
+    webServer.send(500, "application/json", "{\"ok\":false,\"error\":\"save_failed\"}");
+    return;
+  }
+  webServer.send(202, "application/json", "{\"ok\":true,\"state\":\"connecting\"}");
+  WiFi.disconnect(false, false);
+  startWifi();
+}
+
 void runQcAction() {
   const String action = webServer.arg("name");
   serviceHeartbeat();
   if (action == "i2c-scan") {
-    scanI2c();
-    webServer.send(200, "text/plain; charset=utf-8", "Scan I2C selesai; hasil ada di log serial.");
+    const String result = scanI2cJson();
+    Serial.println(result);
+    webServer.send(200, "application/json", result);
+  } else if (action == "gpio-snapshot") {
+    const String result = gpioSnapshotJson();
+    Serial.println(result);
+    webServer.send(200, "application/json", result);
+  } else if (action == "heartbeat-test") {
+    heartbeatReady = pulseHeartbeat();
+    lastHeartbeatMs = millis();
+    webServer.send(200, "application/json", heartbeatReady
+      ? "{\"ok\":true,\"heartbeat\":\"pulse-sent\"}"
+      : "{\"ok\":false,\"heartbeat\":\"failed\"}");
   } else if (action == "oled-refresh") {
     renderOledStatus();
-    webServer.send(200, "text/plain; charset=utf-8", oledReady ? "OLED diperbarui." : "OLED belum siap.");
+    webServer.send(200, "application/json", oledReady
+      ? "{\"ok\":true,\"oled\":\"refreshed\"}"
+      : "{\"ok\":false,\"oled\":\"not-ready\"}");
   } else if (action == "wifi-reconnect") {
     if (wifiSsid.length()) {
       WiFi.reconnect();
       lastWifiAttemptMs = millis();
-      webServer.send(200, "text/plain; charset=utf-8", "Wi-Fi sedang disambungkan ulang.");
+      webServer.send(202, "application/json", "{\"ok\":true,\"wifi\":\"reconnecting\"}");
     } else {
-      webServer.send(409, "text/plain; charset=utf-8", "Wi-Fi belum diprovisikan melalui serial.");
+      webServer.send(409, "application/json", "{\"ok\":false,\"wifi\":\"not-provisioned\"}");
     }
   } else {
-    webServer.send(400, "text/plain; charset=utf-8", "Kontrol tidak dikenal.");
+    webServer.send(400, "application/json", "{\"ok\":false,\"error\":\"unknown_control\"}");
   }
   serviceHeartbeat();
 }
@@ -460,6 +585,9 @@ void startQcPortal() {
     webServer.send(200, "application/json", qcStatusJson());
   });
   webServer.on("/api/action", HTTP_POST, runQcAction);
+  webServer.on("/api/wifi/scan", HTTP_POST, startWifiScan);
+  webServer.on("/api/wifi/scan", HTTP_GET, sendWifiScanResult);
+  webServer.on("/api/wifi/connect", HTTP_POST, connectWifiFromPortal);
   webServer.on("/generate_204", HTTP_ANY, redirectToQcPortal);
   webServer.on("/hotspot-detect.html", HTTP_ANY, redirectToQcPortal);
   webServer.on("/ncsi.txt", HTTP_ANY, redirectToQcPortal);

@@ -63,8 +63,12 @@ does not open it, browse to the AP IP shown on the OLED or serial log (normally
 `http://192.168.4.1/`). When station Wi-Fi is connected, the same port 80 page
 is available at the logged LAN IP to clients on that network.
 
-The dashboard reports heartbeat, AP/LAN networking, OLED, and OTA state. It
-only permits I2C scan, OLED refresh, and Wi-Fi reconnect. The hotspot is
+The dashboard scans nearby Wi-Fi networks asynchronously, lets the operator
+select an SSID and store its password in NVS, then reports heartbeat, AP/LAN
+networking, OLED, and OTA state. Safe QC actions cover heartbeat pulse, I2C
+discovery, passive GPIO snapshot, OLED refresh, and Wi-Fi reconnect. Ethernet,
+LoRa, RS485, MCP2, and ATtiny controls remain visibly locked because their
+component/protocol/electrical contracts are not confirmed. The hotspot is
 intentionally open and uses HTTP for bench QC discovery, so it must not be
 treated as a production control surface or exposed to an untrusted network.
 

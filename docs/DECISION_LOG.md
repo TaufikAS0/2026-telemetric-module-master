@@ -85,3 +85,12 @@
 - Watchdog rule: Service MCP1B4 before and after DNS and HTTP request handling and inside longer actions.
 - Security limitation: The hotspot and HTTP session are unauthenticated and intended only for supervised bench QC. Captive-portal auto-open is client-OS behavior and remains a physical interoperability test.
 
+## D-011 — Portal-first Wi-Fi provisioning and bounded QC workflow
+
+- Status: Accepted for MVP bring-up
+- Operator request: Simplify commissioning by selecting a detected Wi-Fi network, connecting to the LAN, and running QC controls from one interactive page.
+- Decision: Use the ESP32 asynchronous Wi-Fi scan API so MCP1B4 continues to be serviced while scanning. Accept the selected SSID and password through a bounded HTTP POST, store them with the existing Preferences/NVS routine, and start the existing nonblocking station connection.
+- QC scope: Permit heartbeat pulse verification, I2C discovery, passive GPIO snapshot, OLED refresh, and Wi-Fi reconnect. Present Ethernet, LoRa, RS485, MCP2, and ATtiny as locked rather than driving interfaces whose contracts remain unknown.
+- Disclosure rule: Scan results may display broadcast SSIDs and RSSI, but status APIs and logs do not echo saved SSIDs or passwords.
+- Security limitation: Credentials cross an unauthenticated HTTP hotspot and NVS encryption remains unconfirmed. This workflow is restricted to a supervised bench network.
+
