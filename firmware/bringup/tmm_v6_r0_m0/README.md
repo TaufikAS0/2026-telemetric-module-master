@@ -67,10 +67,15 @@ The dashboard scans nearby Wi-Fi networks asynchronously, lets the operator
 select an SSID and store its password in NVS, then reports heartbeat, AP/LAN
 networking, OLED, and OTA state. Safe QC actions cover heartbeat pulse, I2C
 discovery, passive GPIO snapshot, OLED refresh, and Wi-Fi reconnect. Ethernet,
-LoRa, RS485, MCP2, and ATtiny controls remain visibly locked because their
+RS485, MCP2, and ATtiny controls remain locked because their
 component/protocol/electrical contracts are not confirmed. The hotspot is
 intentionally open and uses HTTP for bench QC discovery, so it must not be
 treated as a production control surface or exposed to an untrusted network.
+
+The guided QC panel requires LED1–LED10 visual review, BOOT and CHANGE DISPLAY
+button transitions, AHT10 measurement, W5500 link/DHCP, and SD write
+verification. Every item must be approved or bypassed with a reason before the
+operator can export the JSON report. LoRa is intentionally skipped.
 
 Serial commands:
 

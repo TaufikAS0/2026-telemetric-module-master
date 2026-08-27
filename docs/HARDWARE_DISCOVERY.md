@@ -9,7 +9,7 @@ schematics, PCB inspection, datasheets, or measured evidence.
 | PCB | Product revision and schematic revision | Partial: workbook tab identifies TMM V6 R0 M0; schematic revision/file is unknown |
 | Power | Input range, rails, protection, current budget | Unknown |
 | Flash | Size and mode | Partial: workbook warns GPIO35-GPIO37 are used by 8 MB RAM; RAM type, flash size/mode and memory parts remain unknown |
-| Ethernet | PHY/controller, interface, pins, clocking | Partial: SPI GPIO11/12/13, CS GPIO10, INT GPIO48, reset MCP1B3; controller/PHY and clocking unknown |
+| Ethernet | PHY/controller, interface, pins, clocking | Partial: operator confirms W5500; SPI GPIO11/12/13, CS GPIO10, INT GPIO48 and reset MCP1B3 are mapped; physical link/DHCP remain untested |
 | Wi-Fi | Required or prohibited, antenna constraints | Partial: bring-up uses concurrent open QC AP and provisioned station mode; production antenna, authentication and RF constraints remain unknown |
 | Field bus | RS485/CAN/other, transceiver, termination | Partial: RS485 ESP RX GPIO17/TX GPIO18; transceiver, direction control, termination and protocol unknown |
 | I/O | Pin map, voltage levels, safe boot states | Partial: M0 workbook pin map captured in `hardware/profiles/TMM_V6_R0_M0.json`; safe states and ATtiny voltage conflict unresolved |

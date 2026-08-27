@@ -19,6 +19,9 @@ test("M0 hardware profile records its evidence and remains bring-up only", async
   assert.equal(profile.status, "bring-up-only");
   assert.equal(profile.evidence.sheetGid, 638455439);
   assert.equal(profile.controllers.master.exactPartNumber, null);
+  assert.equal(profile.expanders.MCP1.exactPart, "MCP23017");
+  assert.equal(profile.buses.i2c.devices.find((device) => device.label === "AHT").exactPart, "AHT10");
+  assert.equal(profile.buses.spi.devices.find((device) => device.label === "ETHERNET").exactController, "W5500");
   assert.ok(profile.unknownsBlockingProduction.length >= 8);
 });
 
@@ -57,7 +60,7 @@ test("M2 is only a planned feature-disable profile", async () => {
   assert.equal(profile.modes.M2.disabledFeatures, null);
 });
 
-test("bring-up sketch stays passive for unverified interfaces except MCP1B4", async () => {
+test("bring-up sketch keeps unverified field buses passive", async () => {
   const [header, sketch] = await Promise.all([
     readFile(headerUrl, "utf8"),
     readFile(sketchUrl, "utf8")
@@ -65,7 +68,7 @@ test("bring-up sketch stays passive for unverified interfaces except MCP1B4", as
   assert.match(header, /constexpr int I2C_SDA = 8;/);
   assert.match(header, /constexpr int SD_CS = 47;/);
   assert.match(header, /constexpr int ETH_CS = 10;/);
-  assert.doesNotMatch(sketch, /W5500|Ethernet\.begin/);
+  assert.match(sketch, /Ethernet\.begin/);
   assert.doesNotMatch(sketch, /Serial1\.begin|Serial2\.begin/);
   assert.match(sketch, /pinMode\(pin, INPUT\)/);
   assert.match(sketch, /digitalWrite\(ETH_CS, HIGH\)/);
@@ -78,7 +81,7 @@ test("MCP1B4 heartbeat starts before Wi-Fi and stays below the reset window", as
   assert.match(sketch, /MCP23017_OLATB = 0x15/);
   assert.match(sketch, /delayMicroseconds\(100\)/);
   assert.ok(sketch.indexOf("heartbeatReady = initializeHeartbeat()") < sketch.indexOf("startWifi()"));
-  assert.match(sketch, /void loop\(\) \{\s+serviceHeartbeat\(\);\s+serviceWifi\(\);/);
+  assert.match(sketch, /void loop\(\) \{\s+serviceHeartbeat\(\);[\s\S]*?serviceWifi\(\);/);
   assert.doesNotMatch(sketch, /while\s*\(\s*WiFi\.status\(\)/);
 });
 
@@ -137,7 +140,7 @@ test("QC portal supports captive AP and LAN access without unsafe drivers", asyn
   assert.match(sketch, /action == "i2c-scan"/);
   assert.match(sketch, /action == "oled-refresh"/);
   assert.match(sketch, /action == "wifi-reconnect"/);
-  assert.doesNotMatch(sketch, /action == "(?:ethernet|lora|rs485|attiny)/i);
+  assert.doesNotMatch(sketch, /action == "(?:lora|rs485|attiny)/i);
 });
 
 test("QC portal provisions a selected Wi-Fi network and exposes bounded tests", async () => {
@@ -161,4 +164,18 @@ test("embedded QC portal JavaScript parses successfully", async () => {
   const script = page.match(/<script>([\s\S]*?)<\/script>/)?.[1];
   assert.ok(script, "QC portal script is present");
   assert.doesNotThrow(() => new Function(script));
+});
+
+test("mandatory QC covers confirmed peripherals and exports bypass reasons", async () => {
+  const sketch = await readFile(sketchUrl, "utf8");
+  assert.match(sketch, /action == "led-sequence"/);
+  assert.match(sketch, /action == "aht10-read"/);
+  assert.match(sketch, /action == "ethernet-test"/);
+  assert.match(sketch, /action == "sd-write"/);
+  assert.match(sketch, /bootObserved/);
+  assert.match(sketch, /changeDisplayObserved/);
+  assert.match(sketch, /Bypass ditolak: alasan wajib diisi/);
+  assert.match(sketch, /function exportQc\(\)/);
+  assert.match(sketch, /Ethernet\.linkStatus\(\) == LinkOFF/);
+  assert.match(sketch, /SD\.open\("\/TMM_QC\.TXT", FILE_APPEND\)/);
 });

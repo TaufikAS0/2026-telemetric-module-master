@@ -1,7 +1,9 @@
 #include <Arduino.h>
 #include <ArduinoOTA.h>
 #include <DNSServer.h>
+#include <Ethernet.h>
 #include <Preferences.h>
+#include <SD.h>
 #include <SPI.h>
 #include <WebServer.h>
 #include <Wire.h>
@@ -27,6 +29,8 @@ constexpr size_t WIFI_PASSWORD_MAX_LENGTH = 63;
 constexpr size_t OTA_PASSWORD_MIN_LENGTH = 8;
 constexpr size_t OTA_PASSWORD_MAX_LENGTH = 63;
 constexpr uint8_t MCP23017_IODIRB = 0x01;
+constexpr uint8_t MCP23017_IODIRA = 0x00;
+constexpr uint8_t MCP23017_OLATA = 0x14;
 constexpr uint8_t MCP23017_OLATB = 0x15;
 constexpr uint8_t OLED_I2C_CANDIDATES[] = {0x3C, 0x3D};
 constexpr size_t OLED_WIDTH = 128;
@@ -44,6 +48,14 @@ bool otaReady = false;
 uint8_t lastOtaProgress = 255;
 bool qcPortalReady = false;
 String qcApSsid;
+bool bootObserved = false;
+bool changeDisplayObserved = false;
+int bootInitialState = HIGH;
+int changeDisplayInitialState = HIGH;
+bool ethernetReady = false;
+IPAddress ethernetIp;
+
+void startWifi();
 
 bool mcp1WriteRegister(uint8_t registerAddress, uint8_t value) {
   Wire.beginTransmission(MCP1_I2C_ADDRESS);
@@ -142,6 +154,7 @@ const uint8_t *oledGlyph(char character) {
   static constexpr uint8_t A[] = {0x7E, 0x11, 0x11, 0x11, 0x7E};
   static constexpr uint8_t E[] = {0x7F, 0x49, 0x49, 0x49, 0x41};
   static constexpr uint8_t F[] = {0x7F, 0x09, 0x09, 0x09, 0x01};
+  static constexpr uint8_t H[] = {0x7F, 0x08, 0x08, 0x08, 0x7F};
   static constexpr uint8_t I[] = {0x00, 0x41, 0x7F, 0x41, 0x00};
   static constexpr uint8_t M[] = {0x7F, 0x02, 0x0C, 0x02, 0x7F};
   static constexpr uint8_t P[] = {0x7F, 0x09, 0x09, 0x09, 0x06};
@@ -154,6 +167,7 @@ const uint8_t *oledGlyph(char character) {
   if (character == 'A') return A;
   if (character == 'E') return E;
   if (character == 'F') return F;
+  if (character == 'H') return H;
   if (character == 'I') return I;
   if (character == 'M') return M;
   if (character == 'P') return P;
@@ -203,7 +217,10 @@ void renderOledStatus() {
   if (!oledReady) return;
   memset(oledBuffer, 0, sizeof(oledBuffer));
   oledDrawText(0, 0, F("TMM M0"));
-  if (!wifiSsid.length()) {
+  if (ethernetReady) {
+    oledDrawText(0, 16, F("ETH IP:"));
+    oledDrawText(0, 32, ethernetIp.toString());
+  } else if (!wifiSsid.length()) {
     oledDrawText(0, 16, F("AP:"));
     oledDrawText(0, 32, WiFi.softAPIP().toString());
   } else if (WiFi.status() != WL_CONNECTED) {
@@ -362,6 +379,76 @@ void serviceOta() {
   serviceHeartbeat();
 }
 
+String runLedSequence() {
+  uint8_t directionA = 0, directionB = 0, latchA = 0, latchB = 0;
+  if (!mcp1ReadRegister(MCP23017_IODIRA, directionA)
+      || !mcp1ReadRegister(MCP23017_IODIRB, directionB)
+      || !mcp1ReadRegister(MCP23017_OLATA, latchA)
+      || !mcp1ReadRegister(MCP23017_OLATB, latchB)) {
+    return F("{\"ok\":false,\"error\":\"mcp1_unavailable\"}");
+  }
+  mcp1WriteRegister(MCP23017_IODIRA, 0x00);
+  mcp1WriteRegister(MCP23017_IODIRB, directionB & ~0x01U);
+  mcp1WriteRegister(MCP23017_OLATA, latchA ^ 0xFFU);
+  mcp1WriteRegister(MCP23017_OLATB, latchB ^ 0x01U);
+  delay(400); serviceHeartbeat();
+  mcp1WriteRegister(MCP23017_OLATA, latchA);
+  mcp1WriteRegister(MCP23017_OLATB, latchB);
+  for (uint8_t bit = 0; bit < 8; ++bit) {
+    mcp1WriteRegister(MCP23017_OLATA, latchA ^ (1U << bit));
+    delay(220); serviceHeartbeat();
+    mcp1WriteRegister(MCP23017_OLATA, latchA);
+  }
+  mcp1WriteRegister(MCP23017_OLATB, latchB ^ 0x01U);
+  delay(220); serviceHeartbeat();
+  mcp1WriteRegister(MCP23017_OLATB, latchB);
+  mcp1WriteRegister(MCP23017_IODIRA, directionA);
+  mcp1WriteRegister(MCP23017_IODIRB, directionB);
+  return F("{\"ok\":true,\"fixedPowerLed\":1,\"sequencedLeds\":[2,3,4,5,6,7,8,9,10]}");
+}
+
+String readAht10Json() {
+  Wire.beginTransmission(0x38); Wire.write(0xE1); Wire.write(0x08); Wire.write(0x00);
+  if (Wire.endTransmission() != 0) return F("{\"ok\":false,\"error\":\"aht10_not_found\"}");
+  delay(20); serviceHeartbeat();
+  Wire.beginTransmission(0x38); Wire.write(0xAC); Wire.write(0x33); Wire.write(0x00);
+  if (Wire.endTransmission() != 0) return F("{\"ok\":false,\"error\":\"aht10_trigger_failed\"}");
+  delay(90); serviceHeartbeat();
+  if (Wire.requestFrom(0x38, static_cast<uint8_t>(6)) != 6) return F("{\"ok\":false,\"error\":\"aht10_read_failed\"}");
+  uint8_t data[6]; for (uint8_t &value : data) value = Wire.read();
+  const uint32_t rawHumidity = (static_cast<uint32_t>(data[1]) << 12) | (static_cast<uint32_t>(data[2]) << 4) | (data[3] >> 4);
+  const uint32_t rawTemperature = (static_cast<uint32_t>(data[3] & 0x0F) << 16) | (static_cast<uint32_t>(data[4]) << 8) | data[5];
+  const float humidity = rawHumidity * 100.0F / 1048576.0F;
+  const float temperature = rawTemperature * 200.0F / 1048576.0F - 50.0F;
+  char json[100]; snprintf(json, sizeof(json), "{\"ok\":true,\"temperatureC\":%.2f,\"humidityPercent\":%.2f}", temperature, humidity);
+  return String(json);
+}
+
+String testSdCardJson() {
+  serviceHeartbeat();
+  if (!SD.begin(SD_CS, SPI)) return F("{\"ok\":false,\"error\":\"sd_mount_failed\"}");
+  File file = SD.open("/TMM_QC.TXT", FILE_APPEND);
+  if (!file) { SD.end(); return F("{\"ok\":false,\"error\":\"sd_open_failed\"}"); }
+  file.printf("TMM QC write millis=%lu\n", millis());
+  file.close();
+  const bool written = SD.exists("/TMM_QC.TXT");
+  SD.end(); serviceHeartbeat();
+  return written ? F("{\"ok\":true,\"file\":\"/TMM_QC.TXT\"}") : F("{\"ok\":false,\"error\":\"sd_verify_failed\"}");
+}
+
+String testEthernetJson() {
+  uint64_t deviceId = ESP.getEfuseMac();
+  uint8_t mac[6] = {0x02, static_cast<uint8_t>(deviceId >> 32), static_cast<uint8_t>(deviceId >> 24), static_cast<uint8_t>(deviceId >> 16), static_cast<uint8_t>(deviceId >> 8), static_cast<uint8_t>(deviceId)};
+  Ethernet.init(ETH_CS);
+  Ethernet.begin(mac, IPAddress(0, 0, 0, 0)); serviceHeartbeat();
+  if (Ethernet.hardwareStatus() == EthernetNoHardware) return F("{\"ok\":false,\"error\":\"w5500_not_found\"}");
+  if (Ethernet.linkStatus() == LinkOFF) return F("{\"ok\":false,\"error\":\"ethernet_cable_unplugged\"}");
+  const int dhcp = Ethernet.begin(mac, 3500, 700); serviceHeartbeat();
+  if (!dhcp) return F("{\"ok\":false,\"error\":\"ethernet_dhcp_failed\"}");
+  ethernetIp = Ethernet.localIP(); ethernetReady = true; renderOledStatus();
+  return String(F("{\"ok\":true,\"ip\":\"")) + ethernetIp.toString() + F("\"}");
+}
+
 String jsonEscape(const String &value) {
   String escaped;
   escaped.reserve(value.length() + 8);
@@ -409,21 +496,25 @@ String gpioSnapshotJson() {
 const char QC_PORTAL_HTML[] PROGMEM = R"QC_HTML(
 <!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TMM QC</title><style>
 :root{font-family:Inter,system-ui,sans-serif;color:#eaf2f8;background:#071019}*{box-sizing:border-box}body{max-width:900px;margin:auto;padding:18px;background:radial-gradient(circle at top right,#10375c 0,transparent 38%)}header{display:flex;align-items:center;justify-content:space-between;margin:10px 0 20px}h1{font-size:1.45rem;margin:0}.muted{color:#8ea5b9}.pill{padding:7px 11px;border-radius:99px;background:#152b3d;font-size:.8rem}.steps{display:flex;gap:7px;margin:0 0 18px}.step{flex:1;padding:9px;border-radius:9px;background:#112331;color:#8ea5b9;text-align:center;font-size:.82rem}.step.on{background:#1368ce;color:white}.card{background:#101f2b;border:1px solid #263d4e;border-radius:16px;padding:17px;margin:12px 0;box-shadow:0 12px 28px #0004}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:11px}.row{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid #203544}.row:last-child{border:0}.value{font-family:ui-monospace,monospace;text-align:right}.ok{color:#55e68a}.bad{color:#ffb45e}.networks{display:grid;gap:8px;max-height:250px;overflow:auto;margin:12px 0}.network{display:flex;justify-content:space-between;align-items:center;width:100%;padding:12px;background:#162d3d;border:1px solid #29495e;border-radius:10px;color:white;text-align:left}.network.selected{border-color:#49a3ff;background:#173f61}input{width:100%;padding:12px;background:#091620;border:1px solid #345168;border-radius:9px;color:white;margin:7px 0}button{padding:11px 14px;border:0;border-radius:9px;background:#287fe0;color:white;font-weight:700;cursor:pointer}button.secondary{background:#263d4e}button:disabled{opacity:.45;cursor:not-allowed}.actions{display:flex;gap:8px;flex-wrap:wrap}.actions button{flex:1;min-width:145px}.log{white-space:pre-wrap;background:#08131c;border-radius:9px;padding:12px;min-height:45px;color:#9fc0d7;font-family:ui-monospace,monospace;font-size:.82rem}.locked{opacity:.62}.warn{color:#ffbd66;font-size:.86rem}@media(max-width:520px){.steps{display:grid;grid-template-columns:1fr 1fr}.actions{display:grid}.actions button{width:100%}}
+.tutorial{position:fixed;right:16px;top:76px;width:290px}.qcitem{padding:11px 0;border-bottom:1px solid #294052}.approve{background:#16834a}.bypass{background:#8b5b18}@media(min-width:1000px){body{margin-left:calc((100vw - 1220px)/2);margin-right:330px}}@media(max-width:999px){.tutorial{position:static;width:auto}}
 </style></head><body><header><div><h1>TMM V6 R0 M0</h1><span class="muted">Portal QC lokal</span></div><span id="live" class="pill">Menghubungkan...</span></header>
 <div class="steps"><div class="step on">1 · Pilih Wi-Fi</div><div class="step">2 · Sambungkan</div><div class="step">3 · Jalankan QC</div></div>
 <section class="card"><h2>Jaringan lokal</h2><p class="muted">Pilih jaringan yang terdeteksi. Hotspot QC tetap aktif saat perangkat tersambung ke LAN.</p><button id="scan" onclick="startScan()">Cari jaringan Wi-Fi</button><div id="networks" class="networks"><span class="muted">Tekan tombol untuk memindai.</span></div><input id="password" type="password" maxlength="63" placeholder="Password Wi-Fi (kosongkan untuk jaringan terbuka)"><div class="actions"><button id="connect" disabled onclick="connectWifi()">Sambungkan ke jaringan</button><button class="secondary" onclick="act('wifi-reconnect')">Hubungkan ulang</button></div><p class="warn">Password dikirim melalui HTTP hotspot dan disimpan di NVS; gunakan hanya pada meja QC terkontrol.</p></section>
 <section class="card"><h2>Status langsung</h2><div class="grid"><div><div class="row"><span>Heartbeat</span><span id="hb" class="value">...</span></div><div class="row"><span>Interval</span><span id="hi" class="value">...</span></div><div class="row"><span>OLED</span><span id="oled" class="value">...</span></div><div class="row"><span>OTA</span><span id="ota" class="value">...</span></div></div><div><div class="row"><span>Hotspot</span><span id="ap" class="value">...</span></div><div class="row"><span>AP IP / klien</span><span id="api" class="value">...</span></div><div class="row"><span>LAN Wi-Fi</span><span id="sta" class="value">...</span></div><div class="row"><span>LAN IP / RSSI</span><span id="lan" class="value">...</span></div></div></div></section>
-<section class="card"><h2>Tes QC aman</h2><div class="actions"><button onclick="act('heartbeat-test')">Tes heartbeat</button><button onclick="act('i2c-scan')">Scan I2C</button><button onclick="act('gpio-snapshot')">Baca GPIO</button><button onclick="act('oled-refresh')">Refresh OLED</button><button class="secondary" onclick="testAll()">Jalankan semua</button></div><h3>Hasil</h3><div id="log" class="log">Belum ada tes.</div></section>
-<section class="card locked"><h2>Kontrol menunggu data hardware</h2><p>Ethernet · LoRa · RS485 · MCP2 · ATtiny404</p><p class="muted">Dikunci sampai tipe komponen, protokol, dan batas listrik dikonfirmasi.</p></section>
+<section class="card"><h2>Tes QC wajib</h2><div class="qcitem"><b>1. LED 1–10</b><p class="muted">LED1 power harus tetap menyala; LED2–10 berkedip bersama lalu berurutan.</p><div class="actions"><button onclick="act('led-sequence')">Jalankan LED</button><button class="approve" onclick="approve('led')">Visual benar</button><button class="bypass" onclick="bypass('led')">Bypass</button></div></div><div class="qcitem"><b>2. Tombol BOOT & CHANGE DISPLAY</b><p class="muted">Tekan kedua tombol fisik sampai terdeteksi.</p><div class="actions"><button onclick="act('gpio-snapshot')">Baca tombol</button><button class="approve" onclick="approveButtons()">Tombol benar</button><button class="bypass" onclick="bypass('buttons')">Bypass</button></div></div><div class="qcitem"><b>3. AHT10</b><div class="actions"><button onclick="act('aht10-read')">Baca suhu</button><button class="approve" onclick="approve('aht')">Nilai benar</button><button class="bypass" onclick="bypass('aht')">Bypass</button></div></div><div class="qcitem"><b>4. Ethernet W5500</b><p class="muted">Colok LAN. OLED menampilkan ETH IP setelah DHCP berhasil.</p><div class="actions"><button onclick="act('ethernet-test')">Tes Ethernet</button><button class="approve" onclick="approve('ethernet')">Koneksi benar</button><button class="bypass" onclick="bypass('ethernet')">Bypass</button></div></div><div class="qcitem"><b>5. Micro SD</b><div class="actions"><button onclick="act('sd-write')">Tulis & verifikasi</button><button class="approve" onclick="approve('sd')">SD benar</button><button class="bypass" onclick="bypass('sd')">Bypass</button></div></div><h3>Hasil</h3><div id="log" class="log">Belum ada tes.</div></section>
+<aside class="card tutorial"><h2>Tutorial QC</h2><p>Kerjakan dari atas ke bawah. Semua langkah wajib PASS atau BYPASS beralasan.</p><div id="progress"></div><button id="export" disabled onclick="exportQc()">Export laporan JSON</button><p class="warn">LoRa dilewati. Bypass adalah pengecualian, bukan bukti hardware PASS.</p></aside>
 <script>
-const q=id=>document.getElementById(id), ready=v=>v?'<span class="ok">READY</span>':'<span class="bad">NOT READY</span>';let selected='';
-async function refresh(){try{const s=await(await fetch('/api/status',{cache:'no-store'})).json();q('live').innerHTML='<span class="ok">● ONLINE</span>';q('hb').innerHTML=ready(s.heartbeat.ready);q('hi').textContent=s.heartbeat.intervalMs+' ms';q('ap').textContent=s.network.apSsid;q('api').textContent=s.network.apIp+' / '+s.network.clients;q('sta').innerHTML=ready(s.network.connected);q('lan').textContent=s.network.connected?s.network.lanIp+' / '+s.network.rssi+' dBm':'offline';q('oled').innerHTML=ready(s.oled.ready);q('ota').innerHTML=ready(s.ota.ready);document.querySelectorAll('.step')[1].classList.toggle('on',s.network.connected);document.querySelectorAll('.step')[2].classList.toggle('on',s.heartbeat.ready)}catch(e){q('live').innerHTML='<span class="bad">● OFFLINE</span>'}}
+const q=id=>document.getElementById(id), ready=v=>v?'<span class="ok">READY</span>':'<span class="bad">NOT READY</span>';let selected='',lastStatus={};const qc={led:null,buttons:null,aht:null,ethernet:null,sd:null};
+async function refresh(){try{const s=await(await fetch('/api/status',{cache:'no-store'})).json();lastStatus=s;q('live').innerHTML='<span class="ok">● ONLINE</span>';q('hb').innerHTML=ready(s.heartbeat.ready);q('hi').textContent=s.heartbeat.intervalMs+' ms';q('ap').textContent=s.network.apSsid;q('api').textContent=s.network.apIp+' / '+s.network.clients;q('sta').innerHTML=ready(s.network.connected);q('lan').textContent=s.network.connected?s.network.lanIp+' / '+s.network.rssi+' dBm':'offline';q('oled').innerHTML=ready(s.oled.ready);q('ota').innerHTML=ready(s.ota.ready);document.querySelectorAll('.step')[1].classList.toggle('on',s.network.connected);document.querySelectorAll('.step')[2].classList.toggle('on',s.heartbeat.ready)}catch(e){q('live').innerHTML='<span class="bad">● OFFLINE</span>'}}
 function drawNetworks(items){const box=q('networks');box.textContent='';if(!items.length){box.textContent='Tidak ada jaringan ditemukan.';return}items.forEach(n=>{const b=document.createElement('button');b.className='network';const name=document.createElement('span');name.textContent=n.ssid;const detail=document.createElement('span');detail.textContent=n.rssi+' dBm '+(n.secure?'🔒':'');b.append(name,detail);b.onclick=()=>{selected=n.ssid;document.querySelectorAll('.network').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');q('connect').disabled=false};box.appendChild(b)})}
 async function startScan(){q('scan').disabled=true;q('networks').textContent='Memindai jaringan...';await fetch('/api/wifi/scan',{method:'POST'});pollScan()}
 async function pollScan(){try{const r=await fetch('/api/wifi/scan',{cache:'no-store'});const d=await r.json();if(d.state==='scanning'){setTimeout(pollScan,800);return}drawNetworks(d.networks||[])}catch(e){q('networks').textContent='Pemindaian gagal.'}q('scan').disabled=false}
 async function connectWifi(){if(!selected)return;q('connect').disabled=true;q('log').textContent='Menyambungkan ke '+selected+'...';const body=new URLSearchParams({ssid:selected,password:q('password').value});const r=await fetch('/api/wifi/connect',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});q('log').textContent=await r.text();q('password').value='';setTimeout(refresh,1200);q('connect').disabled=false}
 async function act(name){q('log').textContent='Menjalankan '+name+'...';try{const r=await fetch('/api/action?name='+encodeURIComponent(name),{method:'POST'});const text=await r.text();try{q('log').textContent=JSON.stringify(JSON.parse(text),null,2)}catch(e){q('log').textContent=text}refresh();return r.ok}catch(e){q('log').textContent='Perintah gagal';return false}}
-async function testAll(){for(const name of ['heartbeat-test','i2c-scan','gpio-snapshot','oled-refresh'])await act(name);q('log').textContent='Semua tes aman selesai. Lihat log serial untuk riwayat lengkap.'}refresh();setInterval(refresh,2000);
+function renderProgress(){q('progress').textContent='';Object.entries(qc).forEach(([id,v])=>{const d=document.createElement('div');d.className='row';d.innerHTML='<span>'+id.toUpperCase()+'</span><span class="value '+(v?.status==='pass'?'ok':v?'bad':'muted')+'">'+(v?.status?.toUpperCase()||'WAJIB')+'</span>';q('progress').appendChild(d)});q('export').disabled=!Object.values(qc).every(Boolean)}
+function approve(id){qc[id]={status:'pass',at:new Date().toISOString()};renderProgress()}function approveButtons(){if(!lastStatus.buttons?.bootObserved||!lastStatus.buttons?.changeDisplayObserved){q('log').textContent='Tekan BOOT dan CHANGE DISPLAY terlebih dahulu.';return}approve('buttons')}
+function bypass(id){const reason=prompt('Alasan bypass '+id+':');if(!reason||!reason.trim()){q('log').textContent='Bypass ditolak: alasan wajib diisi.';return}qc[id]={status:'bypass',reason:reason.trim(),at:new Date().toISOString()};renderProgress()}
+function exportQc(){const report={schemaVersion:1,product:'TMM',hardware:'TMM_V6_R0_M0',exportedAt:new Date().toISOString(),deviceStatus:lastStatus,results:qc,overall:Object.values(qc).every(v=>v?.status==='pass')?'pass':'pass-with-bypass'};const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'}));a.download='TMM_QC_'+Date.now()+'.json';a.click();URL.revokeObjectURL(a.href)}renderProgress();refresh();setInterval(refresh,2000);
 </script></body></html>)QC_HTML";
 
 String qcStatusJson() {
@@ -452,6 +543,12 @@ String qcStatusJson() {
   json += otaPassword.length() >= OTA_PASSWORD_MIN_LENGTH ? F("true") : F("false");
   json += F(",\"ready\":");
   json += otaReady ? F("true") : F("false");
+  json += F("},\"buttons\":{\"bootObserved\":");
+  json += bootObserved ? F("true") : F("false");
+  json += F(",\"changeDisplayObserved\":");
+  json += changeDisplayObserved ? F("true") : F("false");
+  json += F("},\"ethernet\":{\"ready\":");
+  json += ethernetReady ? F("true") : F("false");
   json += F("}}}");
   return json;
 }
@@ -547,6 +644,14 @@ void runQcAction() {
     webServer.send(200, "application/json", heartbeatReady
       ? "{\"ok\":true,\"heartbeat\":\"pulse-sent\"}"
       : "{\"ok\":false,\"heartbeat\":\"failed\"}");
+  } else if (action == "led-sequence") {
+    webServer.send(200, "application/json", runLedSequence());
+  } else if (action == "aht10-read") {
+    webServer.send(200, "application/json", readAht10Json());
+  } else if (action == "ethernet-test") {
+    webServer.send(200, "application/json", testEthernetJson());
+  } else if (action == "sd-write") {
+    webServer.send(200, "application/json", testSdCardJson());
   } else if (action == "oled-refresh") {
     renderOledStatus();
     webServer.send(200, "application/json", oledReady
@@ -732,6 +837,8 @@ void configurePassiveInputs() {
     CHANGE_DISPLAY, BOOT_BUTTON, ETH_INT
   };
   for (int pin : inputPins) pinMode(pin, INPUT);
+  bootInitialState = digitalRead(BOOT_BUTTON);
+  changeDisplayInitialState = digitalRead(CHANGE_DISPLAY);
 }
 
 }  // namespace
@@ -760,6 +867,8 @@ void setup() {
 
 void loop() {
   serviceHeartbeat();
+  if (digitalRead(BOOT_BUTTON) != bootInitialState) bootObserved = true;
+  if (digitalRead(CHANGE_DISPLAY) != changeDisplayInitialState) changeDisplayObserved = true;
   serviceWifi();
   serviceQcPortal();
   serviceOta();

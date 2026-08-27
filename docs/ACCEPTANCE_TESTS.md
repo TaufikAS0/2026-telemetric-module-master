@@ -53,6 +53,10 @@ Host-side contract tests:
   validation, and neither saved SSID nor password is returned by status;
 - QC web actions are restricted to heartbeat test, I2C scan, passive GPIO
   snapshot, OLED refresh, and Wi-Fi reconnect.
+- mandatory QC requires operator resolution of LED, button, AHT10, W5500 and SD
+  steps before export; bypass requires a reason and remains distinguishable;
+- LED test restores MCP23017 state, W5500 requires link plus DHCP, and SD writes
+  then verifies `/TMM_QC.TXT`.
 
 Manual board checks, only after module/flash/power/recovery settings are verified:
 
@@ -80,4 +84,9 @@ Manual board checks, only after module/flash/power/recovery settings are verifie
     verify the device acquires a LAN IP without the QC hotspot disappearing.
 15. Run all safe QC actions and verify their JSON results. Confirm the locked
     interfaces cannot be activated from the page.
+16. Complete LED2–LED10 visual sequence while confirming LED1 remains lit.
+17. Press BOOT and CHANGE DISPLAY, verify both transitions are recorded, read
+    AHT10, test W5500 with LAN attached, and verify OLED shows the Ethernet IP.
+18. Write the SD test record, then approve every step or enter a reason for each
+    bypass. Export JSON and confirm its overall result preserves bypasses.
 

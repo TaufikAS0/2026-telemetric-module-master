@@ -94,3 +94,13 @@
 - Disclosure rule: Scan results may display broadcast SSIDs and RSSI, but status APIs and logs do not echo saved SSIDs or passwords.
 - Security limitation: Credentials cross an unauthenticated HTTP hotspot and NVS encryption remains unconfirmed. This workflow is restricted to a supervised bench network.
 
+## D-012 — Mandatory operator QC for confirmed M0 peripherals
+
+- Status: Accepted for bring-up QC
+- Human evidence: Operator confirms AHT10, W5500 Ethernet, and MCP1 at 0x20; the engineering workbook maps LED2–LED10 to MCP1A0–A7/B0, SD to SPI CS47, W5500 to SPI CS10, and physical buttons to GPIO0/GPIO42. MCP1 uses the MCP23017 contract already bounded by D-006.
+- Decision: Provide a guided mandatory QC sequence for LED visual inspection, physical button transitions, AHT10 temperature/humidity, W5500 link plus DHCP, and SD write verification. LoRa remains skipped.
+- Approval rule: Every step must be visually approved or bypassed with a nonempty reason before JSON export is enabled. A bypass is exported as an exception and never converted into hardware PASS.
+- LED detail: LED1 is the fixed 3.3 V power indicator. Firmware toggles LED2–LED10 together and sequentially, then restores MCP direction and latch registers.
+- Ethernet display: After W5500 link and DHCP succeed, OLED changes to ETH IP mode.
+- Evidence boundary: Automated compile/tests do not prove physical QC; exported operator JSON is the evidence record.
+
