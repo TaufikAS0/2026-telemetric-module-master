@@ -28,7 +28,8 @@ At boot, the sketch:
 - exposes password-protected Arduino OTA after Wi-Fi connects;
 - starts an open, uniquely named `TMM-M0-xxxxxx` QC hotspot with a captive
   portal, while serving the same dashboard on the station/LAN IP;
-- does not transmit over LoRa or RS485;
+- does not transmit over LoRa; transmits on RS485 only while the
+  operator-triggered Modbus RTU QC test is running;
 - does not drive MCP pins other than MCP1B4, or any ATtiny404 pin.
 
 The sketch compiles without Wi-Fi credentials. Provision a bench device through
@@ -68,15 +69,16 @@ is available at the logged LAN IP to clients on that network.
 The dashboard scans nearby Wi-Fi networks asynchronously, lets the operator
 select an SSID and store its password in NVS, then reports heartbeat, AP/LAN
 networking, OLED, and OTA state. A progress panel highlights the next required
-QC step. Confirmed M0 tests cover LEDs, buttons, AHT10, W5500, and SD; LoRa,
-RS485, MCP2, and ATtiny remain outside this workflow. The hotspot is
+QC step. Confirmed M0 tests cover LEDs, buttons, AHT10, W5500, SD, and RS485
+Modbus RTU; LoRa, MCP2, and ATtiny remain outside this workflow. The hotspot is
 intentionally open and uses HTTP for bench QC discovery, so it must not be
 treated as a production control surface or exposed to an untrusted network.
 
 The guided QC panel requires LED1–LED10 visual review, BOOT and CHANGE DISPLAY
-button transitions, AHT10 measurement, W5500 link/DHCP, and SD write
-verification. Every item must be approved or bypassed with a reason before the
-operator can export the JSON report. LoRa is intentionally skipped.
+button transitions, AHT10 measurement, W5500 link/DHCP, SD write verification,
+and an RS485 Modbus RTU run with three consecutive CRC-valid responses. Every
+item must be approved or bypassed with a reason before the operator can export
+the JSON report. LoRa is intentionally skipped.
 
 Serial commands:
 

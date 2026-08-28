@@ -71,7 +71,10 @@ test("bring-up sketch keeps unverified field buses passive", async () => {
   assert.match(header, /constexpr int SD_CS = 47;/);
   assert.match(header, /constexpr int ETH_CS = 10;/);
   assert.match(sketch, /Ethernet\.begin/);
-  assert.doesNotMatch(sketch, /Serial1\.begin|Serial2\.begin/);
+  // LoRa stays fully passive; the only UART started is the operator-triggered
+  // RS485 Modbus RTU QC master (D-020).
+  assert.doesNotMatch(sketch, /Serial1\.begin/);
+  assert.match(sketch, /rs485Serial\.begin\(RS485_BAUD_RATE, SERIAL_8N1, RS485_RX, RS485_TX\)/);
   assert.match(sketch, /pinMode\(pin, INPUT\)/);
   assert.match(sketch, /digitalWrite\(ETH_CS, HIGH\)/);
 });
@@ -155,7 +158,7 @@ test("QC portal supports captive AP and LAN access without unsafe drivers", asyn
   assert.match(sketch, /action == "i2c-scan"/);
   assert.match(sketch, /action == "oled-refresh"/);
   assert.match(sketch, /action == "wifi-reconnect"/);
-  assert.doesNotMatch(sketch, /action == "(?:lora|rs485|attiny)/i);
+  assert.doesNotMatch(sketch, /action == "(?:lora|attiny)/i);
 });
 
 test("QC portal provisions a selected Wi-Fi network and exposes bounded tests", async () => {
@@ -242,7 +245,8 @@ test("QC portal drives only the live backend action names", async () => {
   const page = portalPage(sketch);
   for (const action of [
     "led-start", "led-stop", "boot-arm", "change-display-arm",
-    "aht10-retry", "ethernet-start", "ethernet-stop", "sd-start", "wifi-reconnect"
+    "aht10-retry", "ethernet-start", "ethernet-stop", "sd-start", "wifi-reconnect",
+    "rs485-start", "rs485-manual", "rs485-stop"
   ]) {
     assert.match(sketch, new RegExp(`action == "${action}"`), `backend handles ${action}`);
     assert.ok(page.includes(`'${action}'`), `portal invokes ${action}`);
@@ -465,12 +469,87 @@ test("QC portal uses a two-column layout with a sticky right-hand guide on deskt
   assert.match(script, /ledActive\(lastStatus\)\?300:\(testActive\(lastStatus\)\?1000:2000\)/);
 });
 
-test("firmware version is bumped to at least v0.2.0 for the manual LED feature", async () => {
+test("RS485 Modbus RTU QC ports the Longhi bench tester onto the workbook pins", async () => {
+  const [header, sketch] = await Promise.all([
+    readFile(headerUrl, "utf8"),
+    readFile(sketchUrl, "utf8")
+  ]);
+  const page = portalPage(sketch);
+  const script = portalScript(page);
+  // Workbook mapping: module TX1 -> ESP RX GPIO17, module RX1 -> ESP TX GPIO18.
+  assert.match(header, /constexpr int RS485_RX = 17;/);
+  assert.match(header, /constexpr int RS485_TX = 18;/);
+  // Longhi bench configuration carried over: 9600 8N1, poll 0x03, 300 ms
+  // engine interval, 200 ms response timeout, PASS after 3 valid responses.
+  assert.match(sketch, /constexpr uint32_t RS485_BAUD_RATE = 9600;/);
+  assert.match(sketch, /constexpr uint32_t RS485_POLL_INTERVAL_MS = 300;/);
+  assert.match(sketch, /constexpr uint32_t RS485_RESPONSE_TIMEOUT_MS = 200;/);
+  assert.match(sketch, /constexpr uint8_t RS485_PASS_STREAK = 3;/);
+  assert.match(sketch, /uint16_t rs485Crc16\(/);
+  assert.match(sketch, /0xA001U/);
+  assert.match(sketch, /frame\[index\+\+\] = 0x03;/);
+  assert.match(sketch, /HardwareSerial rs485Serial\(2\);/);
+  assert.match(sketch, /void serviceRs485Qc\(\)/);
+  assert.match(sketch, /serviceSdQc\(\);\s*serviceRs485Qc\(\);/);
+  for (const error of [
+    "rs485_timeout", "rs485_crc_mismatch", "rs485_slave_id_mismatch",
+    "rs485_modbus_exception", "rs485_frame_too_short"
+  ]) {
+    assert.match(sketch, new RegExp(`"${error}"`), `RS485 reports ${error}`);
+  }
+  assert.match(sketch, /rs485_invalid_params/);
+  // Status surface and QC gating: streaks, last value, TX/RX hex evidence.
+  assert.match(sketch, /,\\"rs485\\":\{\\"running\\":/);
+  assert.match(sketch, /,\\"pass\\":/);
+  assert.match(sketch, /,\\"lastValue\\":/);
+  assert.match(sketch, /,\\"successStreak\\":/);
+  assert.match(sketch, /,\\"lastTx\\":\\"/);
+  // Portal: sixth mandatory QC card with decision gating.
+  assert.equal((page.match(/id="card-rs485"/g) ?? []).length, 1);
+  assert.match(page, /id="rsValue"/);
+  assert.match(page, /id="rsStreak"/);
+  assert.match(page, /id="rs485Pass"/);
+  assert.match(script, /renderRs485\(/);
+  assert.match(script, /rs485:s\.rs485/);
+  assert.match(script, /id==='rs485'/);
+  assert.match(script, /RS485_STAGES=\['stopped','polling','passed','failed'\]/);
+  assert.match(script, /s\.rs485&&s\.rs485\.running/);
+  assert.match(page, /Langkah 6 · RS485:<\/b>/);
+  assert.match(page, /keenam item diputuskan/);
+});
+
+test("QC tutorial steps are clickable and show live step state for operators", async () => {
+  const sketch = await readFile(sketchUrl, "utf8");
+  const page = portalPage(sketch);
+  const script = portalScript(page);
+  // Every tutorial step is bound to its QC card via data-step.
+  for (const id of ["led", "buttons", "aht", "ethernet", "sd", "rs485"]) {
+    assert.match(page, new RegExp(`data-step="${id}"`), `tutorial step for ${id}`);
+  }
+  assert.match(page, /id="guideList"/);
+  assert.match(script, /function focusCard\(/);
+  assert.match(script, /scrollIntoView\(\{behavior:'smooth'/);
+  assert.match(script, /li\.dataset\.step/);
+  assert.match(script, /SEKARANG/);
+  assert.match(script, /SELESAI/);
+  assert.match(script, /row\.onclick=\(\)=>focusCard\(id\)/);
+  assert.match(script, /pn\.onclick=/);
+  // Live running-test indicator so the operator knows what is in progress.
+  assert.match(page, /id="pnow"/);
+  assert.match(script, /function runningLabel\(/);
+  assert.match(script, /Sedang berjalan: /);
+  assert.match(script, /RS485 polling '\+\(\(s\.rs485\.successStreak\|\|0\)\+'\/3 valid'\)/);
+  // Highlight animation styles exist exactly once.
+  assert.equal((page.match(/@keyframes navflash/g) ?? []).length, 1);
+  assert.match(page, /\.card\.navflash\{animation:navflash/);
+});
+
+test("firmware version is bumped to at least v0.3.0 for the RS485 QC feature", async () => {
   const header = await readFile(versionHeaderUrl, "utf8");
   const macros = new Map(
     [...header.matchAll(/^\s*#define\s+(TMM_M0_VERSION_(?:MAJOR|MINOR|PATCH))\s+(\d+)\s*$/gm)].map((m) => [m[1], Number(m[2])])
   );
   assert.equal(macros.get("TMM_M0_VERSION_MAJOR"), 0);
-  assert.ok(macros.get("TMM_M0_VERSION_MINOR") >= 2, "minor version carries the manual LED feature");
+  assert.ok(macros.get("TMM_M0_VERSION_MINOR") >= 3, "minor version carries the RS485 QC feature");
   assert.ok(macros.get("TMM_M0_VERSION_PATCH") >= 0);
 });

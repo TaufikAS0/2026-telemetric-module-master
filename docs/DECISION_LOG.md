@@ -168,3 +168,20 @@
 - Decision: Bump the firmware to `v0.2.0` (minor: new manual LED feature). Still explicitly non-production: no completed hardware QC evidence exists yet.
 - Consequence: QC JSON exports from this build carry `firmwareVersion: "v0.2.0"` so v0.1.0 bench evidence and v0.2.0 evidence remain distinguishable.
 
+## D-020 — RS485 QC as a Modbus RTU master ported from the Longhi bench tester
+
+- Status: Accepted for bring-up QC (v0.3.0)
+- Operator request: Confirm the onboard RS485 works by reusing the proven Modbus tester from the Longhi `esp32s3_hwtest` sketch; the operator attaches only the A/B differential lines to the device under test.
+- Hardware evidence: Workbook sheet `TMM_V6_R0_M0` wires the RS485 module with VCC 5V, GND, module TX1 → ESP RX GPIO17, module RX1 → ESP TX GPIO18, and no DE/RE direction line. The Longhi bench used the same 4-wire module class (auto direction, UART2, 9600 8N1) successfully against real Modbus slaves. `tmm_v6_r0_m0_pins.h` already carries exactly this mapping (`RS485_RX=17`, `RS485_TX=18`).
+- Decision: Port the Longhi Modbus tester into the TMM sketch as the sixth mandatory QC item. Nonblocking master on UART2 polls read-holding-registers (0x03) every 300 ms with a 200 ms response timeout. Auto mode targets slave 1, register 0, count 1; manual mode accepts slave 1–247, register 0–65535, count 1–125. PASS = 3 consecutive CRC-valid responses (Longhi streak filter); any failure resets the streak and records its reason.
+- Diagnostics surface: `/api/status` `rs485` reports `mode` (`stopped|auto|manual`), `slaveId`, `regAddress`, `regCount`, `pass`, `lastValue`, `successStreak`, `failureStreak`, `pollIntervalMs`, `lastTx`/`lastRx` hex, `durationMs` (null while running), and `lastError` (`rs485_timeout`, `rs485_crc_mismatch`, `rs485_slave_id_mismatch`, `rs485_modbus_exception`, `rs485_frame_too_short`, `rs485_invalid_params`). Actions: `rs485-start`, `rs485-manual`, `rs485-stop`.
+- Watchdog boundary: The engine is polled from `loop()` like the other QC services, so MCP1B4 heartbeat keeps its 1 s cadence; a stalled exchange is bounded by the 200 ms timeout and cannot wedge the loop.
+- Unknown: The auto-direction assumption comes from the workbook wiring (no DE/RE pin) plus Longhi bench behavior, not from a TMM schematic. If the TMM module needs an external direction control, the bench will show one-way traffic (`rs485_timeout` with correct TX hex); that outcome reopens this decision and requires schematic evidence, not another guess.
+
+## D-021 — Interactive clickable tutorial for QC operators
+
+- Status: Accepted for bring-up QC (v0.3.1)
+- Operator request: The tutorial was static text, so operators were unsure which card to work on and what was currently running.
+- Decision: The tutorial steps and progress tiles are clickable and scroll to their QC card with a brief highlight animation; each tutorial step carries a live state badge (`SEKARANG` for the next undecided item, `SELESAI`/`BYPASS` once decided, `MENUNGGU` otherwise), the "next step" line in the progress card is itself clickable, and a running-test indicator under the next-step line shows exactly which test is active with its live stage (e.g. `Sedang berjalan: RS485 polling 2/3 valid`). No firmware/API contract changes — this is portal UX only, hence the patch-level version bump.
+- Evidence limitation: Click/navigation behavior is compile-plus-browser evidence; the physical QC evidence still comes only from the operator completing the workflow on hardware.
+

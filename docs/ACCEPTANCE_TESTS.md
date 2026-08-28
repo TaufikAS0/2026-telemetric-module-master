@@ -86,7 +86,9 @@ Manual board checks, only after module/flash/power/recovery settings are verifie
     interfaces cannot be activated from the page.
 16. Complete LED2–LED10 visual sequence while confirming LED1 remains lit.
 17. Press BOOT and CHANGE DISPLAY, verify both transitions are recorded, read
-    AHT10, test W5500 with LAN attached, and verify OLED shows the Ethernet IP.
+    AHT10, test W5500 with LAN attached, run the RS485 Modbus QC against an
+    attached slave (three consecutive CRC-valid responses), and verify OLED
+    shows the Ethernet IP.
 18. Write the SD test record, then approve every step or enter a reason for each
     bypass. Export JSON and confirm its overall result preserves bypasses.
 

@@ -1655,6 +1655,239 @@ void serviceEthernetQc() {
   }
 }
 
+// ---- RS485 Modbus RTU QC (D-020) ----
+// Direct port of the bench-proven Longhi esp32s3_hwtest Modbus tester: a
+// Modbus RTU master polling read-holding-registers (0x03) on UART2. The
+// workbook wires the RS485 module as TX1->GPIO17 (ESP RX) and RX1->GPIO18
+// (ESP TX) with VCC/GND only - no DE/RE line - so direction is managed by
+// the module itself. Constants mirror the Longhi bench configuration.
+constexpr uint32_t RS485_BAUD_RATE = 9600;
+constexpr uint8_t RS485_DEFAULT_SLAVE_ID = 1;
+constexpr uint16_t RS485_DEFAULT_REG_ADDRESS = 0;
+constexpr uint16_t RS485_DEFAULT_REG_COUNT = 1;
+constexpr uint32_t RS485_POLL_INTERVAL_MS = 300;
+constexpr uint32_t RS485_RESPONSE_TIMEOUT_MS = 200;
+constexpr uint8_t RS485_PASS_STREAK = 3;
+constexpr uint16_t RS485_MAX_REG_COUNT = 125;
+constexpr size_t RS485_RX_BUFFER_SIZE = 64;
+
+enum class Rs485QcMode : uint8_t { STOPPED, AUTO, MANUAL };
+
+struct Rs485QcState {
+  Rs485QcMode mode = Rs485QcMode::STOPPED;
+  bool running = false;
+  bool pass = false;
+  bool waitingResponse = false;
+  uint8_t slaveId = RS485_DEFAULT_SLAVE_ID;
+  uint16_t regAddress = RS485_DEFAULT_REG_ADDRESS;
+  uint16_t regCount = RS485_DEFAULT_REG_COUNT;
+  uint16_t lastValue = 0;
+  uint8_t successStreak = 0;
+  uint8_t failureStreak = 0;
+  uint32_t lastPollMs = 0;
+  uint32_t requestSentMs = 0;
+  uint32_t startedMs = 0;
+  uint32_t durationMs = 0;
+  String lastTxHex = "-";
+  String lastRxHex = "-";
+  String lastError = "stopped";
+};
+Rs485QcState rs485Qc;
+HardwareSerial rs485Serial(2);
+uint8_t rs485RxBuffer[RS485_RX_BUFFER_SIZE] = {};
+size_t rs485RxIndex = 0;
+bool rs485SerialReady = false;
+
+uint16_t rs485Crc16(const uint8_t *data, size_t length) {
+  uint16_t crc = 0xFFFF;
+  for (size_t index = 0; index < length; ++index) {
+    crc ^= data[index];
+    for (uint8_t bit = 0; bit < 8; ++bit) {
+      crc = (crc >> 1) ^ ((crc & 1U) ? 0xA001U : 0U);
+    }
+  }
+  return crc;
+}
+
+void rs485BeginSerial() {
+  if (rs485SerialReady) return;
+  rs485Serial.begin(RS485_BAUD_RATE, SERIAL_8N1, RS485_RX, RS485_TX);
+  rs485SerialReady = true;
+}
+
+void rs485ResetRxBuffer() {
+  rs485RxIndex = 0;
+}
+
+void rs485FlushRx() {
+  while (rs485Serial.available()) rs485Serial.read();
+}
+
+void rs485BytesToHex(const uint8_t *data, size_t length, String &out) {
+  out = "";
+  char encoded[4];
+  for (size_t index = 0; index < length; ++index) {
+    snprintf(encoded, sizeof(encoded), "%02X", data[index]);
+    if (index) out += ' ';
+    out += encoded;
+  }
+}
+
+size_t rs485BuildReadRequest(uint8_t *frame) {
+  size_t index = 0;
+  frame[index++] = rs485Qc.slaveId;
+  frame[index++] = 0x03;  // read holding registers
+  frame[index++] = static_cast<uint8_t>((rs485Qc.regAddress >> 8) & 0xFF);
+  frame[index++] = static_cast<uint8_t>(rs485Qc.regAddress & 0xFF);
+  frame[index++] = static_cast<uint8_t>((rs485Qc.regCount >> 8) & 0xFF);
+  frame[index++] = static_cast<uint8_t>(rs485Qc.regCount & 0xFF);
+  const uint16_t crc = rs485Crc16(frame, index);
+  frame[index++] = static_cast<uint8_t>(crc & 0xFF);
+  frame[index++] = static_cast<uint8_t>(crc >> 8);
+  return index;
+}
+
+void rs485MarkSuccess(uint16_t value) {
+  rs485Qc.lastValue = value;
+  rs485Qc.successStreak++;
+  rs485Qc.failureStreak = 0;
+  rs485Qc.lastError = "";
+  if (!rs485Qc.pass && rs485Qc.successStreak >= RS485_PASS_STREAK) rs485Qc.pass = true;
+}
+
+void rs485MarkFailure(const __FlashStringHelper *reason) {
+  rs485Qc.failureStreak++;
+  rs485Qc.successStreak = 0;
+  rs485Qc.pass = false;
+  rs485Qc.lastError = String(reason);
+}
+
+void rs485SendRequest() {
+  uint8_t frame[8] = {};
+  const size_t length = rs485BuildReadRequest(frame);
+  rs485BytesToHex(frame, length, rs485Qc.lastTxHex);
+  rs485Qc.lastRxHex = "-";
+  // Late bytes from a previous timed-out exchange are garbage to this run.
+  rs485FlushRx();
+  rs485ResetRxBuffer();
+  rs485Serial.write(frame, length);
+  rs485Serial.flush();
+  rs485Qc.waitingResponse = true;
+  rs485Qc.requestSentMs = millis();
+}
+
+void rs485ProcessResponse() {
+  rs485Qc.waitingResponse = false;
+  rs485BytesToHex(rs485RxBuffer, rs485RxIndex, rs485Qc.lastRxHex);
+  if (rs485RxIndex < 4) {
+    rs485MarkFailure(F("rs485_frame_too_short"));
+    rs485ResetRxBuffer();
+    return;
+  }
+  const uint16_t crcCalculated = rs485Crc16(rs485RxBuffer, rs485RxIndex - 2);
+  const uint16_t crcReceived = static_cast<uint16_t>(
+    (rs485RxBuffer[rs485RxIndex - 1] << 8) | rs485RxBuffer[rs485RxIndex - 2]);
+  if (crcCalculated != crcReceived) {
+    rs485MarkFailure(F("rs485_crc_mismatch"));
+    rs485ResetRxBuffer();
+    return;
+  }
+  if (rs485RxBuffer[0] != rs485Qc.slaveId) {
+    rs485MarkFailure(F("rs485_slave_id_mismatch"));
+    rs485ResetRxBuffer();
+    return;
+  }
+  if (rs485RxBuffer[1] & 0x80U) {
+    rs485MarkFailure(F("rs485_modbus_exception"));
+    rs485ResetRxBuffer();
+    return;
+  }
+  const size_t expected = 5U + 2U * rs485Qc.regCount;
+  if (rs485RxIndex < expected) {
+    rs485MarkFailure(F("rs485_frame_too_short"));
+    rs485ResetRxBuffer();
+    return;
+  }
+  rs485MarkSuccess(static_cast<uint16_t>((rs485RxBuffer[3] << 8) | rs485RxBuffer[4]));
+  rs485ResetRxBuffer();
+}
+
+void serviceRs485Qc() {
+  if (rs485Qc.mode == Rs485QcMode::STOPPED) return;
+  const uint32_t now = millis();
+  while (rs485Serial.available()) {
+    if (rs485RxIndex < RS485_RX_BUFFER_SIZE) {
+      rs485RxBuffer[rs485RxIndex++] = static_cast<uint8_t>(rs485Serial.read());
+    } else {
+      rs485Serial.read();
+    }
+  }
+  const size_t expected = 5U + 2U * rs485Qc.regCount;
+  if (rs485Qc.waitingResponse) {
+    if (rs485RxIndex >= expected) {
+      rs485ProcessResponse();
+    } else if (now - rs485Qc.requestSentMs > RS485_RESPONSE_TIMEOUT_MS) {
+      rs485BytesToHex(rs485RxBuffer, rs485RxIndex, rs485Qc.lastRxHex);
+      rs485Qc.waitingResponse = false;
+      rs485MarkFailure(F("rs485_timeout"));
+      rs485ResetRxBuffer();
+    }
+  }
+  if (!rs485Qc.waitingResponse && now - rs485Qc.lastPollMs >= RS485_POLL_INTERVAL_MS) {
+    rs485Qc.lastPollMs = now;
+    rs485SendRequest();
+  }
+}
+
+String startRs485QcJson(bool manual, uint8_t slaveId, uint16_t regAddress, uint16_t regCount) {
+  if (manual && (slaveId == 0 || regCount == 0 || regCount > RS485_MAX_REG_COUNT)) {
+    return F("{\"ok\":false,\"error\":\"rs485_invalid_params\"}");
+  }
+  rs485BeginSerial();
+  rs485Qc.mode = manual ? Rs485QcMode::MANUAL : Rs485QcMode::AUTO;
+  if (manual) {
+    rs485Qc.slaveId = slaveId;
+    rs485Qc.regAddress = regAddress;
+    rs485Qc.regCount = regCount;
+  } else {
+    rs485Qc.slaveId = RS485_DEFAULT_SLAVE_ID;
+    rs485Qc.regAddress = RS485_DEFAULT_REG_ADDRESS;
+    rs485Qc.regCount = RS485_DEFAULT_REG_COUNT;
+  }
+  rs485Qc.running = true;
+  rs485Qc.pass = false;
+  rs485Qc.waitingResponse = false;
+  rs485Qc.lastValue = 0;
+  rs485Qc.successStreak = 0;
+  rs485Qc.failureStreak = 0;
+  rs485Qc.startedMs = millis();
+  rs485Qc.durationMs = 0;
+  rs485Qc.lastError = "";
+  rs485Qc.lastTxHex = "-";
+  rs485Qc.lastRxHex = "-";
+  rs485Qc.lastPollMs = 0;
+  rs485ResetRxBuffer();
+  rs485FlushRx();
+  return manual
+    ? F("{\"ok\":true,\"action\":\"rs485-manual\",\"state\":\"polling\"}")
+    : F("{\"ok\":true,\"action\":\"rs485-start\",\"state\":\"polling\"}");
+}
+
+String stopRs485QcJson() {
+  const bool wasRunning = rs485Qc.running;
+  rs485Qc.mode = Rs485QcMode::STOPPED;
+  rs485Qc.running = false;
+  rs485Qc.waitingResponse = false;
+  if (wasRunning) rs485Qc.durationMs = millis() - rs485Qc.startedMs;
+  rs485Qc.lastError = "stopped";
+  rs485ResetRxBuffer();
+  rs485FlushRx();
+  String json = F("{\"ok\":true,\"stopped\":");
+  json += wasRunning ? F("true") : F("false");
+  json += F("}");
+  return json;
+}
+
 String jsonEscape(const String &value) {
   String escaped;
   escaped.reserve(value.length() + 8);
@@ -1744,6 +1977,15 @@ h1{font-size:1.12rem;margin:0;letter-spacing:.3px}
 .ledbtns button{padding:8px 12px;min-width:40px;font-family:var(--mono)}
 .ledbtns button.active{background:linear-gradient(180deg,var(--acc),#1a8f83);color:#022420;border-color:#5ef0e2;box-shadow:0 0 10px rgba(47,212,195,.45)}
 .guide{margin:0;padding-left:18px;display:grid;gap:7px;font-size:.78rem}
+.guide li{cursor:pointer;border-radius:9px;padding:7px 9px;margin:-1px -9px;border:1px solid transparent;transition:background .15s,border-color .15s}
+.guide li:hover{background:rgba(47,212,195,.08);border-color:rgba(47,212,195,.3)}
+.guide li .stepst{float:right;font-size:.6rem;font-weight:800;font-family:var(--mono);letter-spacing:.4px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);color:var(--mut);margin-left:8px}
+.guide li.now .stepst{color:#022420;background:rgba(47,212,195,.18);border-color:rgba(47,212,195,.5)}
+.guide li.done .stepst{color:#06281f;background:rgba(61,220,151,.16);border-color:rgba(61,220,151,.4)}
+.guide li.done{opacity:.7}
+.guide li.now{border-color:rgba(47,212,195,.35)}
+@keyframes navflash{0%{box-shadow:0 0 0 5px rgba(47,212,195,.45);border-color:var(--acc)}100%{box-shadow:0 14px 34px rgba(0,0,0,.32)}}
+.card.navflash{animation:navflash 1.5s ease}
 .guide li{padding-left:2px}
 .guide b{color:var(--tx)}
 .gnote{font-size:.72rem;color:var(--mut);border-top:1px dashed rgba(42,85,112,.4);margin-top:10px;padding-top:9px}
@@ -1782,9 +2024,11 @@ button.byp{background:linear-gradient(180deg,#b3822c,#8f6420);color:#fff8ea}
 .decbadge.warn{color:#3a2404;background:rgba(255,180,84,.16);border-color:rgba(255,180,84,.4)}
 .pbar{height:9px;border-radius:99px;background:#0a1620;border:1px solid var(--line);overflow:hidden;margin:10px 0}
 .pbar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--acc),var(--acc2));transition:width .4s}
-.pnext{font-size:.82rem;background:rgba(74,168,255,.08);border:1px solid rgba(74,168,255,.25);border-radius:10px;padding:9px 12px;margin-bottom:10px}
+.pnext{font-size:.82rem;background:rgba(74,168,255,.08);border:1px solid rgba(74,168,255,.25);border-radius:10px;padding:9px 12px;margin-bottom:10px;cursor:pointer}
+.pnow{font-size:.72rem;color:var(--acc);font-family:var(--mono);min-height:1.1em;margin:-4px 0 10px}
 .pitems{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:7px}
-.pitem{display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:.73rem;padding:7px 9px;border:1px solid var(--line);border-radius:9px;background:var(--panel2)}
+.pitem{display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:.73rem;padding:7px 9px;border:1px solid var(--line);border-radius:9px;background:var(--panel2);cursor:pointer;transition:border-color .15s}
+.pitem:hover{border-color:rgba(47,212,195,.45)}
 .pitem span{color:var(--mut)}
 .pitem b.ok{color:var(--ok)}.pitem b.warn{color:var(--warn)}.pitem b.mut{color:var(--mut)}
 .leds{display:flex;gap:6px;margin:8px 0 2px;flex-wrap:wrap}
@@ -1941,6 +2185,28 @@ textarea{min-height:88px;resize:vertical}
  <div class="actions"><button id="sdStart" onclick="act('sd-start')">Mulai tes</button></div>
  <div class="verdict"><span class="gatereason" id="sdGate"></span><div class="decide"><button class="pass" id="sdPass" onclick="decide('sd','pass')">PASS</button><button class="byp" onclick="openBypass('sd')">BYPASS</button><span class="decbadge" id="sdDecision">MENUNGGU</span></div></div>
 </section>
+<section class="card" id="card-rs485" data-qc="rs485">
+ <div class="chead"><h2>6 · RS485 Modbus</h2><span class="statechip" id="rsState">IDLE</span></div>
+ <p class="hint"><b>Prosedur QC:</b> sambungkan kabel A/B modul RS485 ke perangkat slave Modbus RTU, tekan <b>Mulai tes</b> (default slave 1, register 0, jumlah 1, 9600 8N1). Lolos: <b>3 respons berturut-turut</b> dengan CRC valid. Mode <b>manual</b> untuk slave/register sendiri.</p>
+ <div class="stages" id="rsStages"></div>
+ <div class="kv">
+  <div class="kvrow"><span>Target (slave / reg)</span><b id="rsTarget">—</b></div>
+  <div class="kvrow"><span>Nilai register terakhir</span><b id="rsValue">—</b></div>
+  <div class="kvrow"><span>Streak PASS / FAIL</span><b id="rsStreak">—</b></div>
+  <div class="kvrow"><span>TX terakhir</span><b id="rsTx">—</b></div>
+  <div class="kvrow"><span>RX terakhir</span><b id="rsRx">—</b></div>
+  <div class="kvrow"><span>Durasi</span><b id="rsDur">—</b></div>
+  <div class="kvrow"><span>Error terakhir</span><b id="rsError">—</b></div>
+ </div>
+ <div class="actions"><button id="rsStart" onclick="act('rs485-start')">Mulai tes</button><button class="ghost" id="rsStop" onclick="act('rs485-stop')" disabled>Stop</button></div>
+ <details class="coll"><summary>Mode manual (slave / register custom)</summary><div class="inner">
+  <input id="rsSlave" type="number" min="1" max="247" value="1" placeholder="Slave ID (1-247)">
+  <input id="rsAddr" type="number" min="0" max="65535" value="0" placeholder="Alamat register (0-65535)">
+  <input id="rsCount" type="number" min="1" max="125" value="1" placeholder="Jumlah register (1-125)">
+  <div class="actions"><button class="ghost" onclick="rs485Manual()">Mulai polling manual</button></div>
+ </div></details>
+ <div class="verdict"><span class="gatereason" id="rs485Gate"></span><div class="decide"><button class="pass" id="rs485Pass" onclick="decide('rs485','pass')">PASS</button><button class="byp" onclick="openBypass('rs485')">BYPASS</button><span class="decbadge" id="rs485Decision">MENUNGGU</span></div></div>
+</section>
 </div>
  <details class="coll">
   <summary>Jaringan Wi-Fi (provisioning)<span class="statechip" id="wifiChip">SEKUNDER</span></summary>
@@ -1970,19 +2236,21 @@ textarea{min-height:88px;resize:vertical}
    <div class="chead"><h2>Progres QC Perangkat</h2><button class="ghost" id="exportBtn" onclick="exportQc()" disabled>Export JSON</button></div>
    <div class="pbar"><i id="pbarFill"></i></div>
    <div class="pnext" id="pnext">Memuat status perangkat…</div>
+   <div class="pnow" id="pnow"></div>
    <div class="pitems" id="pitems"></div>
-   <p class="gnote">Setiap item wajib diakhiri PASS berbasis bukti atau BYPASS dengan alasan tertulis. Export terbuka setelah kelima item diputuskan.</p>
+    <p class="gnote">Setiap item wajib diakhiri PASS berbasis bukti atau BYPASS dengan alasan tertulis. Export terbuka setelah keenam item diputuskan.</p>
   </section>
   <section class="card" id="card-guide">
    <div class="chead"><h2>Tutorial &amp; Aturan</h2><span class="statechip acc">WAJIB</span></div>
-   <ol class="guide">
-    <li><b>LED 1–10:</b> tekan <b>Jalankan siklus LED</b> — LED2–LED10 menyala satu per satu (0,3 s per LED) dan terus berulang sampai <b>Stop</b>. LED1 adalah indikator power dan harus tetap menyala. Mode <b>manual</b> menyalakan tepat satu LED untuk inspeksi.</li>
-    <li><b>Tombol Fisik:</b> tekan <b>Arm</b> pada kartu tombol, lalu tekan-lepas tombol fisik hingga <b>siklus penuh</b> tercatat. Kedua tombol wajib lolos.</li>
-    <li><b>AHT10:</b> nilai suhu/kelembapan muncul otomatis (±2 s). Jika sensor tidak terbaca, periksa diagnostik ACK/kalibrasi pada kartu.</li>
-    <li><b>Ethernet:</b> colok kabel LAN, tekan <b>Mulai tes</b>; lolos bila W5500 terdeteksi + link ON + DHCP memberi IP.</li>
-    <li><b>MicroSD:</b> masukkan kartu, tekan <b>Mulai tes</b>; firmware menulis, membaca ulang, lalu menghapus satu file tes miliknya sendiri. File Anda tidak disentuh.</li>
-   </ol>
-   <p class="gnote">Urutan kartu = urutan wajib. PASS hanya dengan bukti live; BYPASS adalah pengecualian tercatat, bukan bukti hardware. Setelah kelima item diputuskan, tombol <b>Export JSON</b> terbuka.</p>
+    <ol class="guide" id="guideList">
+     <li data-step="led"><b>Langkah 1 · LED 1–10:</b> tekan <b>Jalankan siklus LED</b> — LED2–LED10 menyala satu per satu (0,3 s per LED) dan terus berulang sampai <b>Stop</b>. LED1 adalah indikator power dan harus tetap menyala. Mode <b>manual</b> menyalakan tepat satu LED untuk inspeksi.</li>
+     <li data-step="buttons"><b>Langkah 2 · Tombol Fisik:</b> tekan <b>Arm</b> pada kartu tombol, lalu tekan-lepas tombol fisik hingga <b>siklus penuh</b> tercatat. Kedua tombol wajib lolos.</li>
+     <li data-step="aht"><b>Langkah 3 · AHT10:</b> nilai suhu/kelembapan muncul otomatis (±2 s). Jika sensor tidak terbaca, periksa diagnostik ACK/kalibrasi pada kartu.</li>
+     <li data-step="ethernet"><b>Langkah 4 · Ethernet:</b> colok kabel LAN, tekan <b>Mulai tes</b>; lolos bila W5500 terdeteksi + link ON + DHCP memberi IP.</li>
+     <li data-step="sd"><b>Langkah 5 · MicroSD:</b> masukkan kartu, tekan <b>Mulai tes</b>; firmware menulis, membaca ulang, lalu menghapus satu file tes miliknya sendiri. File Anda tidak disentuh.</li>
+     <li data-step="rs485"><b>Langkah 6 · RS485:</b> sambungkan A/B ke slave Modbus RTU, tekan <b>Mulai tes</b>; lolos bila 3 respons berturut-turut CRC-valid. Mode manual untuk slave/register custom.</li>
+    </ol>
+    <p class="gnote">Klik langkah mana pun untuk membuka kartunya. Urutan kartu = urutan wajib. PASS hanya dengan bukti live; BYPASS adalah pengecualian tercatat, bukan bukti hardware. Setelah keenam item diputuskan, tombol <b>Export JSON</b> terbuka.</p>
   </section>
  </aside>
 </div>
@@ -1999,12 +2267,14 @@ textarea{min-height:88px;resize:vertical}
 <script>
 'use strict';
 const q=id=>document.getElementById(id);
-const ITEMS=['led','buttons','aht','ethernet','sd'];
-const LABELS={led:'LED 1–10',buttons:'Tombol Fisik',aht:'AHT10',ethernet:'Ethernet W5500',sd:'MicroSD'};
+const ITEMS=['led','buttons','aht','ethernet','sd','rs485'];
+const LABELS={led:'LED 1–10',buttons:'Tombol Fisik',aht:'AHT10',ethernet:'Ethernet W5500',sd:'MicroSD',rs485:'RS485 Modbus'};
 const ETH_STAGES=['idle','initializing','waiting_link','acquiring_dhcp','passed','failed'];
 const ETH_LABELS=['IDLE','INISIALISASI','MENUNGGU LINK','DHCP','LOLOS','GAGAL'];
 const SD_STAGES=['idle','probing','mounting','writing','reading','cleaning','passed','failed'];
 const SD_LABELS=['IDLE','PROBE','MOUNT','TULIS','BACA','BERSIH','LOLOS','GAGAL'];
+const RS485_STAGES=['stopped','polling','passed','failed'];
+const RS485_LABELS=['IDLE','POLLING','LOLOS','GAGAL'];
 let lastStatus=null,bypassId=null;
 const decisions={},armed={boot:false,cd:false},prev={},logLines=[];
 let pollRunning=false,pollWake=false;
@@ -2015,11 +2285,21 @@ const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className
 function chipState(id,state,val,sub){const c=q(id);if(c)c.dataset.state=state;set(id+'Val',val);if(sub!==undefined)set(id+'Sub',sub);}
 function flash(key,id,val){const sig=String(val);if(prev[key]!==undefined&&prev[key]!==sig){const n=q(id);if(n){n.classList.remove('flash');void n.offsetWidth;n.classList.add('flash');}}prev[key]=sig;}
 function addLog(text){logLines.push(new Date().toLocaleTimeString()+'  '+text);while(logLines.length>40)logLines.shift();set('log',logLines.join('\n'));}
+function focusCard(id){const c=q('card-'+id);if(!c)return;c.scrollIntoView({behavior:'smooth',block:'start'});c.classList.remove('navflash');void c.offsetWidth;c.classList.add('navflash');}
+function runningLabel(s){
+ if(!s)return'';
+ const act=[];
+ if(s.ledTest&&s.ledTest.running)act.push('LED '+(s.ledTest.mode==='manual'?'manual':'siklus'));
+ if(s.ethernet&&s.ethernet.running)act.push('Ethernet ('+(s.ethernet.stage||'')+')');
+ if(s.sdTest&&s.sdTest.running)act.push('MicroSD ('+(s.sdTest.stage||'')+')');
+ if(s.rs485&&s.rs485.running)act.push('RS485 polling '+((s.rs485.successStreak||0)+'/3 valid'));
+ return act.join(' · ');
+}
 function setLive(on){const n=q('live');if(!n)return;n.textContent=on?'● ONLINE':'● OFFLINE';n.className='live '+(on?'on':'off');}
 function buildStepper(prefix,stages,labels){const w=q(prefix+'Stages');if(!w)return;stages.forEach((name,i)=>{const s=el('span','stage',(labels&&labels[i])||name.toUpperCase());s.id=prefix+'Stage'+i;w.appendChild(s);});}
 function setStepper(prefix,stages,stage){const idx=stages.indexOf(stage||'idle');stages.forEach((name,i)=>{const n=q(prefix+'Stage'+i);if(!n)return;let cls='stage';if(idx>=0&&i<idx)cls+=' past';if(idx>=0&&i===idx)cls+=(name==='passed'?' ok':name==='failed'?' bad':' on');n.className=cls;});}
 function sleepSliced(ms){return new Promise(resolve=>{let left=ms;const t=setInterval(()=>{left-=250;if(left<=0||pollWake){clearInterval(t);resolve();}},250);});}
-function testActive(s){return !!(s&&((s.ledTest&&s.ledTest.running)||(s.ethernet&&s.ethernet.running)||(s.sdTest&&s.sdTest.running)));}
+function testActive(s){return !!(s&&((s.ledTest&&s.ledTest.running)||(s.ethernet&&s.ethernet.running)||(s.sdTest&&s.sdTest.running)||(s.rs485&&s.rs485.running)));}
 function ledActive(s){return !!(s&&s.ledTest&&s.ledTest.running);}
 async function pollLoop(){
  if(pollRunning)return;pollRunning=true;
@@ -2040,7 +2320,8 @@ async function pollLoop(){
 }
 function renderAll(s){
  renderStrip(s);renderLed(s.ledTest||{});renderButtons(s.buttons||{});
- renderAht(s.aht10||{});renderEthernet(s.ethernet||{});renderSd(s.sdTest||{});renderDecisions();
+ renderAht(s.aht10||{});renderEthernet(s.ethernet||{});renderSd(s.sdTest||{});renderRs485(s.rs485||{});renderDecisions();
+ const busy=runningLabel(s);set('pnow',busy?'Sedang berjalan: '+busy:'');
 }
 function renderStrip(s){
  const hb=s.heartbeat||{},n=s.network||{},o=s.oled||{},ot=s.ota||{};
@@ -2103,21 +2384,34 @@ function renderEthernet(e){
  set('ethError',dash(e.lastError));
  const s=q('ethStart'),x=q('ethStop');if(s)s.disabled=!!e.running;if(x)x.disabled=!e.running;
 }
-function renderSd(d){
- d=d||{};setStepper('sd',SD_STAGES,d.stage);
- setCls('sdState',d.running?'TES BERJALAN':(d.testPassed?'LOLOS':(d.stage==='failed'?'GAGAL':'IDLE')),'statechip '+(d.running?'acc':(d.testPassed?'ok':(d.stage==='failed'?'bad':''))));
- setCls('sdCard',d.cardPresent?'Kartu merespons (CMD0 ack)':'Kartu tidak merespons','tag'+(d.cardPresent?' ok':' bad'));
- set('sdType',dash(d.cardType));
- setCls('sdMount',d.mounted?'Mount OK':'Belum mount','tag'+(d.mounted?' ok':''));
- setCls('sdWrite',d.writePassed?'Tulis OK':'Belum lolos','tag'+(d.writePassed?' ok':''));
- setCls('sdRead',d.readbackPassed?'Isi identik':'Belum lolos','tag'+(d.readbackPassed?' ok':''));
- setCls('sdClean',d.cleanupPassed?'Dihapus & terverifikasi':'Belum lolos','tag'+(d.cleanupPassed?' ok':''));
- set('sdBytes',d.bytesWritten===null||d.bytesWritten===undefined?'—':d.bytesWritten+' byte');
- set('sdFile',dash(d.testFile));
- set('sdDur',d.durationMs===null||d.durationMs===undefined?'berjalan…':Math.round(d.durationMs/1000)+' s');
- set('sdError',dash(d.lastError));
- const s=q('sdStart');if(s)s.disabled=!!d.running;
-}
+ function renderSd(d){
+  d=d||{};setStepper('sd',SD_STAGES,d.stage);
+  setCls('sdState',d.running?'TES BERJALAN':(d.testPassed?'LOLOS':(d.stage==='failed'?'GAGAL':'IDLE')),'statechip '+(d.running?'acc':(d.testPassed?'ok':(d.stage==='failed'?'bad':''))));
+  setCls('sdCard',d.cardPresent?'Kartu merespons (CMD0 ack)':'Kartu tidak merespons','tag'+(d.cardPresent?' ok':' bad'));
+  set('sdType',dash(d.cardType));
+  setCls('sdMount',d.mounted?'Mount OK':'Belum mount','tag'+(d.mounted?' ok':''));
+  setCls('sdWrite',d.writePassed?'Tulis OK':'Belum lolos','tag'+(d.writePassed?' ok':''));
+  setCls('sdRead',d.readbackPassed?'Isi identik':'Belum lolos','tag'+(d.readbackPassed?' ok':''));
+  setCls('sdClean',d.cleanupPassed?'Dihapus & terverifikasi':'Belum lolos','tag'+(d.cleanupPassed?' ok':''));
+  set('sdBytes',d.bytesWritten===null||d.bytesWritten===undefined?'—':d.bytesWritten+' byte');
+  set('sdFile',dash(d.testFile));
+  set('sdDur',d.durationMs===null||d.durationMs===undefined?'berjalan…':Math.round(d.durationMs/1000)+' s');
+  set('sdError',dash(d.lastError));
+  const s=q('sdStart');if(s)s.disabled=!!d.running;
+ }
+ function renderRs485(r){
+  r=r||{};const stage=r.running?'polling':(r.pass?'passed':((r.failureStreak||0)>0?'failed':'stopped'));
+  setStepper('rs',RS485_STAGES,stage);
+  setCls('rsState',r.running?('POLLING '+((r.mode==='manual')?'MANUAL':'AUTO')):(r.pass?'LOLOS':(stage==='failed'?'GAGAL':'IDLE')),'statechip '+(r.running?'acc':(r.pass?'ok':(stage==='failed'?'bad':''))));
+  set('rsTarget',(r.slaveId||1)+' / reg '+(r.regAddress||0)+' × '+(r.regCount||1));
+  set('rsValue',r.lastValue===undefined?'—':String(r.lastValue));
+  set('rsStreak',(r.successStreak||0)+' / '+(r.failureStreak||0));
+  set('rsTx',dash(r.lastTx));
+  set('rsRx',dash(r.lastRx));
+  set('rsDur',r.durationMs===null||r.durationMs===undefined?'berjalan…':Math.round((r.durationMs||0)/1000)+' s');
+  set('rsError',dash(r.lastError));
+  const st=q('rsStart'),sp=q('rsStop');if(st)st.disabled=!!r.running;if(sp)sp.disabled=!r.running;
+ }
 function gateReason(id){
  const s=lastStatus||{};
  if(id==='led'){const t=s.ledTest||{};
@@ -2140,15 +2434,21 @@ function gateReason(id){
   if(e.link!=='on')return 'Link Ethernet belum ON — colok kabel LAN.';
   if(!e.dhcpPassed)return 'DHCP belum berhasil mendapatkan IP.';
   return 'Jalankan tes Ethernet sampai tahap LOLOS.';}
- if(id==='sd'){const d=s.sdTest||{};
-  if(d.testPassed)return '';
-  if(d.lastError)return 'Error: '+d.lastError;
-  if(d.stage==='idle')return 'Jalankan tes MicroSD.';
-  if(!d.mounted)return 'Kartu MicroSD gagal dimount.';
-  return 'Tes MicroSD belum mencapai tahap LOLOS.';}
- return 'Item tidak dikenal.';
-}
-function snapshot(id){const s=lastStatus||{};return {led:s.ledTest,buttons:s.buttons,aht:s.aht10,ethernet:s.ethernet,sd:s.sdTest}[id]||null;}
+  if(id==='sd'){const d=s.sdTest||{};
+   if(d.testPassed)return '';
+   if(d.lastError)return 'Error: '+d.lastError;
+   if(d.stage==='idle')return 'Jalankan tes MicroSD.';
+   if(!d.mounted)return 'Kartu MicroSD gagal dimount.';
+   return 'Tes MicroSD belum mencapai tahap LOLOS.';}
+  if(id==='rs485'){const r=s.rs485||{};
+   if(r.pass&&r.running)return 'Tekan Stop untuk menghentikan polling sebelum PASS.';
+   if(r.pass)return '';
+   if(r.running)return 'Polling berjalan — tunggu 3 respons valid atau tekan Stop.';
+   if(r.lastError&&r.lastError!=='stopped')return 'Error: '+r.lastError;
+   return 'Jalankan tes RS485 sampai 3 respons berturut-turut valid.';}
+  return 'Item tidak dikenal.';
+ }
+ function snapshot(id){const s=lastStatus||{};return {led:s.ledTest,buttons:s.buttons,aht:s.aht10,ethernet:s.ethernet,sd:s.sdTest,rs485:s.rs485}[id]||null;}
 function decide(id,status){
  if(status!=='pass')return;
  if(decisions[id]&&decisions[id].status==='pass')return;
@@ -2181,9 +2481,19 @@ function renderDecisions(){
    g.className='gatereason'+(!d&&!blocked?' ok':'');}
   const p=q(id+'Pass');if(p)p.disabled=(!d&&!!gateReason(id))||!!(d&&d.status==='pass');
  });
- set('pnext',nextId?'Langkah berikutnya: '+LABELS[nextId]:'Semua item selesai — export laporan QC.');
+ document.querySelectorAll('#guideList li[data-step]').forEach(li=>{
+  const id=li.getAttribute('data-step'),d=decisions[id];
+  let cls='',txt='MENUNGGU';
+  if(d){cls='done';txt=d.status==='pass'?'SELESAI':'BYPASS';}
+  else if(id===nextId){cls='now';txt='SEKARANG';}
+  li.className=cls;
+  let tag=li.querySelector('.stepst');
+  if(!tag){tag=el('span','stepst');li.appendChild(tag);}
+  tag.textContent=txt;
+ });
+ set('pnext',nextId?'Langkah berikutnya: '+LABELS[nextId]+' — klik untuk membuka kartunya.':'Semua item selesai — export laporan QC.');
  const fill=q('pbarFill');if(fill)fill.style.width=(done/ITEMS.length*100)+'%';
- const list=q('pitems');if(list){list.textContent='';ITEMS.forEach(id=>{const d=decisions[id];const row=el('div','pitem');row.appendChild(el('span',null,LABELS[id]));row.appendChild(el('b',d?(d.status==='pass'?'ok':'warn'):'mut',d?d.status.toUpperCase():'WAJIB'));list.appendChild(row);});}
+ const list=q('pitems');if(list){list.textContent='';ITEMS.forEach(id=>{const d=decisions[id];const row=el('div','pitem');row.appendChild(el('span',null,LABELS[id]));row.appendChild(el('b',d?(d.status==='pass'?'ok':'warn'):'mut',d?d.status.toUpperCase():'WAJIB'));row.onclick=()=>focusCard(id);list.appendChild(row);});}
  const exp=q('exportBtn');if(exp)exp.disabled=done!==ITEMS.length;
 }
 function exportQc(){
@@ -2213,6 +2523,7 @@ async function ledStop(){await act('led-stop');}
 async function ledManual(n){await act('led-manual','led='+n);}
 async function ledAllOff(){await act('led-all-off');}
 async function armButton(which){const ok=await act(which==='boot'?'boot-arm':'change-display-arm');if(ok)armed[which]=true;}
+async function rs485Manual(){await act('rs485-manual','slave='+encodeURIComponent(q('rsSlave').value)+'&addr='+encodeURIComponent(q('rsAddr').value)+'&count='+encodeURIComponent(q('rsCount').value));}
 let selectedSsid='';
 async function startScan(){q('scanBtn').disabled=true;set('networks','Memindai jaringan...');try{await fetch('/api/wifi/scan',{method:'POST'});pollScan();}catch(e){set('networks','Pemindaian gagal.');q('scanBtn').disabled=false;}}
 async function pollScan(){
@@ -2272,6 +2583,9 @@ function buildStatic(){
   const off=el('button','ghost','Semua OFF');off.id='ledMbOff';off.onclick=ledAllOff;lm.appendChild(off);}
  buildStepper('eth',ETH_STAGES,ETH_LABELS);
  buildStepper('sd',SD_STAGES,SD_LABELS);
+ buildStepper('rs',RS485_STAGES,RS485_LABELS);
+ document.querySelectorAll('#guideList li[data-step]').forEach(li=>{li.onclick=()=>focusCard(li.dataset.step);});
+ const pn=q('pnext');if(pn)pn.onclick=()=>{const nid=ITEMS.find(id=>!decisions[id]);if(nid)focusCard(nid);};
 }
 q('bypassModal').addEventListener('click',e=>{if(e.target===q('bypassModal'))closeBypass();});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!q('bypassModal').hidden)closeBypass();});
@@ -2282,7 +2596,7 @@ String qcStatusJson() {
   const uint32_t nowMs = millis();
   const bool connected = WiFi.status() == WL_CONNECTED;
   String json;
-  json.reserve(1900);
+  json.reserve(2400);
   json += F("{\"heartbeat\":{\"ready\":");
   json += heartbeatReady ? F("true") : F("false");
   json += F(",\"intervalMs\":");
@@ -2381,7 +2695,39 @@ String qcStatusJson() {
   json += sdQc.expectedPayload;
   json += F("\"},\"aht10\":");
   appendAht10Status(json, nowMs);
-  json += F(",\"firmwareVersion\":\"");
+  json += F(",\"rs485\":{\"running\":");
+  json += rs485Qc.running ? F("true") : F("false");
+  json += F(",\"mode\":\"");
+  json += rs485Qc.mode == Rs485QcMode::AUTO ? F("auto")
+    : (rs485Qc.mode == Rs485QcMode::MANUAL ? F("manual") : F("stopped"));
+  json += F("\",\"slaveId\":");
+  json += rs485Qc.slaveId;
+  json += F(",\"regAddress\":");
+  json += rs485Qc.regAddress;
+  json += F(",\"regCount\":");
+  json += rs485Qc.regCount;
+  json += F(",\"pass\":");
+  json += rs485Qc.pass ? F("true") : F("false");
+  json += F(",\"lastValue\":");
+  json += rs485Qc.lastValue;
+  json += F(",\"successStreak\":");
+  json += rs485Qc.successStreak;
+  json += F(",\"failureStreak\":");
+  json += rs485Qc.failureStreak;
+  json += F(",\"pollIntervalMs\":");
+  json += RS485_POLL_INTERVAL_MS;
+  json += F(",\"lastTx\":\"");
+  json += rs485Qc.lastTxHex;
+  json += F("\",\"lastRx\":\"");
+  json += rs485Qc.lastRxHex;
+  json += F("\",\"durationMs\":");
+  // durationMs is null while the run is in flight and numeric only once the
+  // run stopped.
+  if (rs485Qc.running) json += F("null");
+  else json += rs485Qc.durationMs;
+  json += F(",\"lastError\":\"");
+  json += rs485Qc.lastError;
+  json += F("\"},\"firmwareVersion\":\"");
   json += FIRMWARE_VERSION;
   json += F("\"}");
   return json;
@@ -2555,6 +2901,15 @@ void runQcAction() {
     webServer.send(200, "application/json", stopEthernetQcJson());
   } else if (action == "sd-start") {
     webServer.send(200, "application/json", startSdQcJson());
+  } else if (action == "rs485-start") {
+    webServer.send(200, "application/json", startRs485QcJson(false, 0, 0, 0));
+  } else if (action == "rs485-manual") {
+    const uint8_t slaveId = static_cast<uint8_t>(webServer.arg("slave").toInt());
+    const uint16_t regAddress = static_cast<uint16_t>(webServer.arg("addr").toInt());
+    const uint16_t regCount = static_cast<uint16_t>(webServer.arg("count").toInt());
+    webServer.send(200, "application/json", startRs485QcJson(true, slaveId, regAddress, regCount));
+  } else if (action == "rs485-stop") {
+    webServer.send(200, "application/json", stopRs485QcJson());
   } else if (action == "oled-refresh") {
     renderOledStatus();
     webServer.send(200, "application/json", oledReady
@@ -2648,7 +3003,7 @@ void serviceWifi() {
 }
 
 void printBlockedDrivers() {
-  Serial.println(F("{\"blocked\":[\"MCP1 assumed MCP23017 for B4 heartbeat only\",\"MCP2 exact part unknown\",\"Ethernet controller unknown\",\"RS485 direction and protocol unknown\",\"LoRa baud and protocol unknown\",\"ATtiny voltage conflict unresolved\"]}"));
+  Serial.println(F("{\"blocked\":[\"MCP1 assumed MCP23017 for B4 heartbeat only\",\"MCP2 exact part unknown\",\"Ethernet controller unknown\",\"LoRa baud and protocol unknown\",\"ATtiny voltage conflict unresolved\"]}"));
 }
 
 void printHelp() {
@@ -2782,6 +3137,7 @@ void loop() {
   serviceLedTest();
   serviceEthernetQc();
   serviceSdQc();
+  serviceRs485Qc();
   webOta.serviceRestart();
   while (Serial.available()) {
     const char character = static_cast<char>(Serial.read());
