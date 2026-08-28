@@ -4,6 +4,7 @@ import { test } from "node:test";
 
 const profileUrl = new URL("../hardware/profiles/TMM_V6_R0_M0.json", import.meta.url);
 const headerUrl = new URL("../firmware/bringup/tmm_v6_r0_m0/tmm_v6_r0_m0_pins.h", import.meta.url);
+const versionHeaderUrl = new URL("../firmware/bringup/tmm_v6_r0_m0/tmm_v6_r0_m0_version.h", import.meta.url);
 const sketchUrl = new URL("../firmware/bringup/tmm_v6_r0_m0/tmm_v6_r0_m0.ino", import.meta.url);
 const webOtaUrl = new URL("../firmware/bringup/tmm_v6_r0_m0/tmm_web_ota.h", import.meta.url);
 const gitignoreUrl = new URL("../.gitignore", import.meta.url);
@@ -171,27 +172,305 @@ test("QC portal provisions a selected Wi-Fi network and exposes bounded tests", 
   assert.doesNotMatch(sketch, /\"password\"\s*:/);
 });
 
+function portalPage(sketch) {
+  return sketch.match(/R"QC_HTML\(([\s\S]*?)\)QC_HTML"/)?.[1];
+}
+
+function portalScript(page) {
+  return page?.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+}
+
 test("embedded QC portal JavaScript parses successfully", async () => {
   const sketch = await readFile(sketchUrl, "utf8");
-  const page = sketch.match(/R"QC_HTML\(([\s\S]*?)\)QC_HTML"/)?.[1];
+  const page = portalPage(sketch);
   assert.ok(page, "QC portal HTML is embedded");
-  const script = page.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+  const script = portalScript(page);
   assert.ok(script, "QC portal script is present");
   assert.doesNotThrow(() => new Function(script));
   assert.match(page, /Update firmware OTA/);
   assert.match(page, /Langkah berikutnya/);
 });
 
-test("mandatory QC covers confirmed peripherals and exports bypass reasons", async () => {
+test("QC portal renders the version token without embedding a literal version", async () => {
   const sketch = await readFile(sketchUrl, "utf8");
-  assert.match(sketch, /action == "led-sequence"/);
-  assert.match(sketch, /action == "aht10-read"/);
-  assert.match(sketch, /action == "ethernet-test"/);
-  assert.match(sketch, /action == "sd-write"/);
-  assert.match(sketch, /bootObserved/);
-  assert.match(sketch, /changeDisplayObserved/);
-  assert.match(sketch, /Bypass ditolak: alasan wajib diisi/);
-  assert.match(sketch, /function exportQc\(\)/);
-  assert.match(sketch, /Ethernet\.linkStatus\(\) == LinkOFF/);
-  assert.match(sketch, /SD\.open\("\/TMM_QC\.TXT", FILE_APPEND\)/);
+  const page = portalPage(sketch);
+  assert.match(sketch, /FIRMWARE_VERSION_TOKEN\[\] = "\{\{FIRMWARE_VERSION\}\}"/);
+  assert.match(sketch, /webServer\.sendContent\(FIRMWARE_VERSION, versionLength\)/);
+  const occurrences = page.match(/\{\{FIRMWARE_VERSION\}\}/g) ?? [];
+  assert.ok(occurrences.length >= 2, "version token appears in meta and header");
+  assert.match(page, /<meta name="firmware-version" content="\{\{FIRMWARE_VERSION\}\}">/);
+  assert.match(page, /data-fw="\{\{FIRMWARE_VERSION\}\}"/);
+  assert.doesNotMatch(page, /v0\.\d+\.\d+/);
+  assert.match(page, /firmwareVersion/);
+});
+
+test("FIRMWARE_VERSION stringifies numeric macros into a real version string", async () => {
+  const header = await readFile(versionHeaderUrl, "utf8");
+  // The stringifier expands the token it receives, so the version components
+  // must be object-like #define macros. A constexpr variable would stringify
+  // to its own identifier — the OTA regression where /api/status reported
+  // vFIRMWARE_VERSION_MAJOR.FIRMWARE_VERSION_MINOR.FIRMWARE_VERSION_PATCH.
+  const defines = new Map(
+    [...header.matchAll(/^\s*#define\s+([A-Za-z_]\w*)\s+(\d+)\s*$/gm)].map((m) => [m[1], m[2]])
+  );
+  const initializer = header.match(/FIRMWARE_VERSION\[\]\s*=\s*([\s\S]*?);/)?.[1];
+  assert.ok(initializer, "FIRMWARE_VERSION initializer is present");
+  const expand = (token) =>
+    token
+      .split(/(\W+)/)
+      .map((part) => defines.get(part) ?? part)
+      .join("");
+  const quoted = initializer.replace(
+    /TMM_M0_VERSION_STRINGIFY\s*\(([^()]*)\)/g,
+    (_, arg) => JSON.stringify(expand(arg.trim()))
+  );
+  const rendered = quoted
+    .match(/"(?:[^"\\]|\\.)*"/g)
+    ?.map((literal) => JSON.parse(literal))
+    .join("");
+  assert.ok(rendered, "FIRMWARE_VERSION concatenates into one string literal");
+  assert.match(rendered, /^v\d+\.\d+\.\d+$/, "rendered version is a real semantic version");
+  assert.equal(
+    rendered,
+    `v${defines.get("TMM_M0_VERSION_MAJOR")}.${defines.get("TMM_M0_VERSION_MINOR")}.${defines.get("TMM_M0_VERSION_PATCH")}`,
+    "rendered version matches the header's version macros"
+  );
+});
+
+test("QC portal drives only the live backend action names", async () => {
+  const sketch = await readFile(sketchUrl, "utf8");
+  const page = portalPage(sketch);
+  for (const action of [
+    "led-start", "led-stop", "boot-arm", "change-display-arm",
+    "aht10-retry", "ethernet-start", "ethernet-stop", "sd-start", "wifi-reconnect"
+  ]) {
+    assert.match(sketch, new RegExp(`action == "${action}"`), `backend handles ${action}`);
+    assert.ok(page.includes(`'${action}'`), `portal invokes ${action}`);
+  }
+  for (const stale of ["led-sequence", "aht10-read", "ethernet-test", "sd-write"]) {
+    assert.ok(!page.includes(stale), `stale action ${stale} removed from portal`);
+  }
+  assert.doesNotMatch(sketch, /bootObserved|changeDisplayObserved/);
+});
+
+test("QC portal shows separated arming and press-cycle evidence per button", async () => {
+  const sketch = await readFile(sketchUrl, "utf8");
+  const page = portalPage(sketch);
+  assert.match(page, /Arm BOOT/);
+  assert.match(page, /Arm CHANGE DISPLAY/);
+  assert.match(page, /id="bootArmed"/);
+  assert.match(page, /id="cdArmed"/);
+  assert.match(page, /Bukti tekan/);
+  assert.match(page, /Bukti siklus penuh/);
+  const script = portalScript(page);
+  assert.match(script, /fullCycleConfirmed/);
+  assert.match(script, /pressCount/);
+  assert.match(script, /DITEKAN/);
+  assert.match(script, /SIKLUS PENUH/);
+});
+
+test("QC portal updates AHT10 automatically and only offers retry as recovery", async () => {
+  const sketch = await readFile(sketchUrl, "utf8");
+  const page = portalPage(sketch);
+  assert.match(page, /tidak ada tombol baca manual/);
+  assert.match(page, /id="ahtTemp"/);
+  assert.match(page, /id="ahtHum"/);
+  assert.match(page, /id="ahtRetry"/);
+  const script = portalScript(page);
+  assert.match(script, /sampleValid/);
+  assert.match(script, /sampleAgeMs/);
+  assert.match(script, /stale/);
+  assert.doesNotMatch(page, /aht10-read/);
+});
+
+test("QC portal visualizes Ethernet and MicroSD stage machines with evidence", async () => {
+  const sketch = await readFile(sketchUrl, "utf8");
+  const page = portalPage(sketch);
+  const script = portalScript(page);
+  for (const stage of ["idle", "initializing", "waiting_link", "acquiring_dhcp", "passed", "failed"]) {
+    assert.ok(script.includes(`'${stage}'`), `Ethernet stage ${stage} is visualized`);
+  }
+  for (const stage of ["mounting", "writing", "reading", "cleaning"]) {
+    assert.ok(script.includes(`'${stage}'`), `MicroSD stage ${stage} is visualized`);
+  }
+  for (const field of ["hardwareDetected", "dhcpPassed", "bytesWritten", "testFile", "durationMs", "lastError"]) {
+    assert.ok(script.includes(field), `portal renders ${field}`);
+  }
+  assert.match(sketch, /Ethernet\.hardwareStatus\(\) != EthernetW5500/);
+  assert.match(sketch, /SD\.remove\(sdQc\.testFile\)/);
+  assert.match(sketch, /sdQcStageName/);
+  assert.match(sketch, /ethernetQcStageName/);
+});
+
+test("QC portal gates PASS on evidence and forces reasoned bypass through a modal", async () => {
+  const sketch = await readFile(sketchUrl, "utf8");
+  const page = portalPage(sketch);
+  const script = portalScript(page);
+  assert.match(script, /function gateReason\(/);
+  assert.match(script, /PASS diblokir/);
+  assert.match(script, /Tekan Stop untuk menghentikan siklus sebelum PASS/);
+  assert.match(script, /penuh belum terbukti/);
+  assert.match(script, /function exportQc\(\)/);
+  assert.match(script, /pass-with-bypass/);
+  assert.match(script, /deviceStatus/);
+  assert.match(script, /firmwareVersion/);
+  assert.match(script, /decisions/);
+  assert.match(page, /id="bypassModal"/);
+  assert.match(page, /Bypass ditolak: alasan wajib diisi/);
+  assert.doesNotMatch(script, /\bprompt\s*\(/);
+  assert.doesNotMatch(script, /innerHTML/);
+});
+
+test("QC guide and progress are integrated into the main content", async () => {
+  const sketch = await readFile(sketchUrl, "utf8");
+  const page = portalPage(sketch);
+  assert.match(page, /id="pbarFill"/);
+  assert.match(page, /id="pnext"/);
+  assert.match(page, /id="pitems"/);
+  assert.doesNotMatch(page, /\.tutorial\s*\{[^}]*position:\s*fixed/);
+  assert.doesNotMatch(page, /class="tutorial"/);
+});
+
+test("QC portal polls /api/status without overlapping fetches", async () => {
+  const sketch = await readFile(sketchUrl, "utf8");
+  const script = portalScript(portalPage(sketch));
+  assert.match(script, /\/api\/status/);
+  assert.match(script, /pollRunning/);
+  assert.match(script, /pollWake/);
+  assert.match(script, /testActive\(/);
+  assert.doesNotMatch(script, /setInterval\(\s*refresh/);
+});
+
+test("LED2-LED10 drive is explicitly active-low with one-LED-at-a-time levels", async () => {
+  const sketch = await readFile(sketchUrl, "utf8");
+  // Live bench evidence (v0.1.0 session): the INVERT_SNAPSHOT guess was
+  // inverted, so the polarity must now be an explicit active-low drive.
+  assert.doesNotMatch(sketch, /INVERT_SNAPSHOT/);
+  assert.match(sketch, /enum class LedPolarity : uint8_t \{\s+ACTIVE_LOW\s+\}/);
+  assert.match(sketch, /constexpr int LED_ON_LEVEL = LOW;/);
+  assert.match(sketch, /constexpr int LED_OFF_LEVEL = HIGH;/);
+  // Every level change is one masked pass over both LED-owned ports, so a
+  // sequence step or manual click can never light two LEDs.
+  assert.match(sketch, /bool ledTestApplyLevels\(int litLed\)/);
+  assert.match(sketch, /mcp1WriteRegister\(MCP23017_OLATA, \(latchA & ~LED_TEST_MASK_PORTA\) \| levelA\)/);
+  assert.match(sketch, /mcp1WriteRegister\(MCP23017_OLATB, \(latchB & ~LED_TEST_MASK_PORTB\) \| levelB\)/);
+  assert.match(sketch, /const char \*ledModeName\(LedMode mode\)/);
+  assert.match(sketch, /ledTest\.mode != LedMode::SEQUENCE\) return;/);
+  // Restoration drives every LED bit OFF (HIGH) before the pins are handed back.
+  assert.match(sketch, /if \(!ledTestApplyLevels\(-1\)\) \{[\s\S]*?mcp1_restore_failed/);
+  // Status API reports mode, polarity, and the actual lit LED.
+  assert.match(sketch, /,\\"mode\\":\\"/);
+  assert.match(sketch, /,\\"polarity\\":\\"active-low\\",\\"activeLed\\":/);
+});
+
+test("LED manual mode lights exactly one LED and never touches GPB1-GPB7", async () => {
+  const sketch = await readFile(sketchUrl, "utf8");
+  const page = portalPage(sketch);
+  const script = portalScript(page);
+  for (const action of ["led-manual", "led-all-off"]) {
+    assert.match(sketch, new RegExp(`action == "${action}"`), `backend handles ${action}`);
+    assert.ok(page.includes(`'${action}'`), `portal invokes ${action}`);
+  }
+  assert.match(sketch, /String manualLedJson\(int ledNumber\)/);
+  assert.match(sketch, /String manualLedsOffJson\(\)/);
+  assert.match(sketch, /invalid_led_number/);
+  assert.match(sketch, /litLed/);
+  // LED-owned masks only: PORTA full byte and GPB0; GPB1..GPB7 (heartbeat) stay masked out.
+  assert.match(sketch, /constexpr uint8_t LED_TEST_MASK_PORTA = 0xFFU;/);
+  assert.match(sketch, /constexpr uint8_t LED_TEST_MASK_PORTB = 0x01U;/);
+  // Manual buttons per LED number plus a global all-off button.
+  assert.match(page, /id="ledManualBtns"/);
+  assert.match(script, /ledManual\(i\)/);
+  assert.match(script, /ledAllOff/);
+  assert.match(script, /activeLed/);
+});
+
+test("AHT10 driver follows the datasheet init order and reports stage diagnostics", async () => {
+  const sketch = await readFile(sketchUrl, "utf8");
+  const page = portalPage(sketch);
+  const script = portalScript(page);
+  assert.match(sketch, /AHT10_RESET_COMMAND\[\] = \{0xBA\}/);
+  assert.match(sketch, /AHT10_CALIBRATE_COMMAND\[\] = \{0xE1, 0x08, 0x00\}/);
+  assert.match(sketch, /AHT10_MEASURE_COMMAND\[\] = \{0xAC, 0x33, 0x00\}/);
+  assert.match(sketch, /AHT10_STATUS_REGISTER = 0x71/);
+  assert.match(sketch, /AHT10_STATUS_CALIBRATED_BIT = 0x08/);
+  assert.match(sketch, /AHT10_POWERUP_DELAY_MS = 100;/);
+  assert.match(sketch, /bool aht10ReadStatus\(\)/);
+  assert.match(sketch, /case Aht10Stage::PROBE:/);
+  assert.match(sketch, /case Aht10Stage::CHECK_CALIBRATION:/);
+  assert.match(sketch, /case Aht10Stage::WAIT_CALIBRATION:/);
+  // Distinct per-stage errors, including the observed probe failure.
+  for (const error of [
+    "aht10_not_found", "aht10_reset_failed", "aht10_status_read_failed",
+    "aht10_calibrate_failed", "aht10_not_calibrated", "aht10_trigger_failed",
+    "aht10_read_failed", "aht10_busy_timeout", "aht10_range_unplausible"
+  ]) {
+    assert.match(sketch, new RegExp(`"${error}"`), `AHT10 reports ${error}`);
+  }
+  // Diagnostics surface: stage, calibration, raw status byte, error count.
+  assert.match(sketch, /,\\"stage\\":\\"/);
+  assert.match(sketch, /,\\"calibrated\\":/);
+  assert.match(sketch, /,\\"statusByte\\":/);
+  assert.match(sketch, /,\\"errorCount\\":/);
+  assert.match(script, /ahtStage/);
+  assert.match(script, /statusByte/);
+  assert.match(script, /errorCount/);
+  assert.match(page, /id="ahtStage"/);
+});
+
+test("MicroSD QC probes card presence and reports granular errors and card type", async () => {
+  const sketch = await readFile(sketchUrl, "utf8");
+  const page = portalPage(sketch);
+  const script = portalScript(page);
+  assert.match(sketch, /bool sdProbeCardPresent\(\)/);
+  assert.match(sketch, /SPI\.transfer\(0x40 \| 0\)/);
+  assert.match(sketch, /SPI\.transfer\(0x95\)/);
+  assert.match(sketch, /void sdReleaseBus\(\)/);
+  assert.match(sketch, /String sdCardTypeName\(uint8_t type\)/);
+  assert.match(sketch, /SD\.cardType\(\)/);
+  assert.match(sketch, /case SdQcStage::PROBING:/);
+  // No card response and a responding card that fails to mount are distinct.
+  assert.match(sketch, /failSdQc\(F\("sd_no_card"\), now\)/);
+  assert.match(sketch, /failSdQc\(F\("sd_mount_failed"\), now\)/);
+  assert.match(sketch, /,\\"cardPresent\\":/);
+  assert.match(sketch, /,\\"cardType\\":\\"/);
+  assert.ok(script.includes("'probing'"), "probing stage is visualized");
+  assert.match(page, /id="sdCard"/);
+  assert.match(page, /id="sdType"/);
+});
+
+test("QC portal uses a two-column layout with a sticky right-hand guide on desktop", async () => {
+  const sketch = await readFile(sketchUrl, "utf8");
+  const page = portalPage(sketch);
+  const script = portalScript(page);
+  assert.match(page, /class="layout"/);
+  assert.match(page, /class="colmain"/);
+  assert.match(page, /<aside class="side">/);
+  assert.match(page, /\.side\{[^}]*position:sticky/);
+  assert.match(page, /grid-template-columns:minmax\(0,1fr\) 340px/);
+  assert.match(page, /@media\(max-width:920px\)\{\.layout\{grid-template-columns:minmax\(0,1fr\)\}\.side\{position:static;order:-1\}\}/);
+  // Progress and tutorial exist exactly once, in the sidebar.
+  assert.equal((page.match(/id="card-progress"/g) ?? []).length, 1);
+  assert.equal((page.match(/id="card-guide"/g) ?? []).length, 1);
+  assert.equal((page.match(/id="pbarFill"/g) ?? []).length, 1);
+  assert.equal((page.match(/id="pnext"/g) ?? []).length, 1);
+  assert.equal((page.match(/id="pitems"/g) ?? []).length, 1);
+  // Secondary disclosures are not duplicated either.
+  assert.equal((page.match(/Jaringan Wi-Fi \(provisioning\)/g) ?? []).length, 1);
+  assert.equal((page.match(/Update firmware OTA/g) ?? []).length, 1);
+  // Manual LED controls are rendered from the LED card, not a second section.
+  assert.equal((page.match(/id="ledManualBtns"/g) ?? []).length, 1);
+  // Poll cadence tracks the 300 ms LED step.
+  assert.match(script, /ledActive\(/);
+  assert.match(script, /ledActive\(lastStatus\)\?300:\(testActive\(lastStatus\)\?1000:2000\)/);
+});
+
+test("firmware version is bumped to at least v0.2.0 for the manual LED feature", async () => {
+  const header = await readFile(versionHeaderUrl, "utf8");
+  const macros = new Map(
+    [...header.matchAll(/^\s*#define\s+(TMM_M0_VERSION_(?:MAJOR|MINOR|PATCH))\s+(\d+)\s*$/gm)].map((m) => [m[1], Number(m[2])])
+  );
+  assert.equal(macros.get("TMM_M0_VERSION_MAJOR"), 0);
+  assert.ok(macros.get("TMM_M0_VERSION_MINOR") >= 2, "minor version carries the manual LED feature");
+  assert.ok(macros.get("TMM_M0_VERSION_PATCH") >= 0);
 });

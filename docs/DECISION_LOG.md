@@ -113,3 +113,58 @@
 - Image boundary: Web OTA accepts only the app `.ino.bin`; merged/full-flash images are not supported. Heartbeat servicing brackets flash writes and the device restarts only after `Update.end(true)` succeeds.
 - Evidence boundary: Compilation proves the image fits and links. Portal interaction, update recovery, rollback behavior, and physical QC remain hardware tests.
 
+## D-014 — Embedded firmware semantic version source of truth
+
+- Status: Accepted for MVP bring-up
+- Evidence gap: Before this decision no explicit embedded semantic version existed, so flashed `.ino.bin` files and exported QC JSON could not be distinguished after an OTA update (acceptance test step 10–11 requires verifying "the new sketch version" but no version surface was defined).
+- Decision: Establish `v0.1.0` as the initial feature-bearing bring-up version, explicitly labeled bring-up/non-production. It is defined exactly once in `firmware/bringup/tmm_v6_r0_m0/tmm_v6_r0_m0_version.h` as numeric components from which the single display string is derived at compile time; every runtime surface consumes that constant only.
+- Runtime surfaces: `printProfile()` serial JSON adds `"version"`; `/api/status` adds a top-level `"firmwareVersion"` (carried into the operator QC export via `deviceStatus`); the QC portal page receives the same string by substituting the `{{FIRMWARE_VERSION}}` placeholder while streaming the PROGMEM page in bounded chunks that continue MCP1B4 heartbeat servicing.
+- Version separation: The desktop simulator identity remains `package.json` (`0.0.1`). Simulator and firmware versions are independent identities on separate evidence levels (decision D-003); firmware must not read the simulator value and the simulator must not claim to represent embedded firmware state. A matching number would be coincidence, never shared truth.
+- RAM boundary: The portal page is streamed from flash-mapped PROGMEM with per-chunk substitution instead of being rebuilt in heap memory, preserving the existing single-copy page layout. Portal structure itself is intentionally unchanged (no redesign in this change).
+- Evidence limitation: A compile identifies which sources were built, not whether the build works on hardware. Physical verification of `version`/`firmwareVersion` surfaces, portal rendering after streaming, and post-OTA version checks remain required board tests.
+
+## D-015 — LED2–LED10 are active-low with sequence and manual modes
+
+- Status: Accepted for bring-up QC (v0.2.0)
+- Hardware evidence: During the live v0.1.0 bench session (2026-08-28), selecting LED9 as the single "active" output under the INVERT_SNAPSHOT polarity drove LED9 OFF while LED2–LED8 and LED10 all lit. The mapped MCP1 latch bits therefore light their LEDs when driven LOW; the earlier snapshot-based polarity guess was inverted.
+- Decision: Drive LED2–LED10 explicitly active-low. OFF is HIGH on every LED-owned latch bit and the active level is exactly one bit LOW at a time. Every level change writes both LED-owned ports in one masked read-modify-write pass, so a sequence step or a manual click is atomic and can never light two LEDs. The sequence loops LED2→LED10 at 300 ms until Stop.
+- Manual mode: portal buttons 2–10 and "Semua OFF" call `led-manual` / `led-all-off`. Clicking a number lights exactly that LED (mode `manual`, active LED reported); "Semua OFF" parks all LED bits HIGH. Switching from sequence to manual is allowed and stops the loop.
+- Watchdog boundary: GPB4 (heartbeat) and GPB1–GPB7 are never written by the LED module; each port write re-reads OLATA/OLATB first, so heartbeat pulses interleaved with LED writes survive.
+- Status surface: `/api/status` `ledTest` reports `mode` (`idle|sequence|manual`), `polarity:"active-low"`, `activeLed` (number or null), `running`, `intervalMs`, `cyclesCompleted`, `lastError`.
+- Restoration: Stop and every failure path drive all LED bits HIGH before handing the pins back, then restore the START direction/latch snapshots, so restoring an input direction can never leave an LED lit.
+- Consequence: The active-low polarity is now bench-observed evidence for LED2–LED10, but the LED electrical schematic (series resistance, sink current per pin) remains unverified; per-pin current budget is still unknown.
+
+## D-016 — AHT10 datasheet init sequence with stage diagnostics
+
+- Status: Accepted for bring-up QC (v0.2.0)
+- Defect evidence: The live v0.1.0 bench session reported `aht10_not_found` persistently at 0x38, although the operator confirms an AHT10 is present. The v0.1.0 driver sent the calibration command as its first ever transaction, with no probe, no reset, no calibration verification, and no power-up settle.
+- Decision: Follow the Aosong AHT10 power-up order nonblocking: settle >=100 ms after reset before any bus access, explicit ACK probe at 0x38, soft reset (0xBA) once per boot/operator retry, status read through register 0x71, calibration command (0xE1 0x08 0x00) only while the calibrated status bit (bit3) is clear with a re-check after 20 ms, then triggered measurements (0xAC 0x33 0x00) polled through the busy bit inside a bounded window. Calibration, once confirmed, is trusted for later cycles.
+- Diagnostics surface: `/api/status` `aht10` adds `stage` (`idle|probe|wait_reset|check_calibration|wait_calibration|trigger|measure|poll_read`), `calibrated`, `statusByte` (raw hex or null), and `errorCount` beside the existing fields. Errors are distinct per stage: `aht10_not_found`, `aht10_reset_failed`, `aht10_status_read_failed`, `aht10_calibrate_failed`, `aht10_not_calibrated`, `aht10_trigger_failed`, `aht10_read_failed`, `aht10_busy_timeout`, `aht10_range_unplausible`.
+- Evidence boundary: No temperature or humidity value is ever fabricated; values come only from a completed, physically plausible conversion and the last valid sample stays visible with its staleness. `aht10-retry` forces the full probe/reset/calibration path.
+- Unknown: Whether the 0x38 NACK was a power-up timing issue, a bus electrical issue, or a different AHT part (AHT10 vs AHT20 command sets differ) remains unresolved until this version runs on the bench.
+
+## D-017 — SD QC distinguishes card absence, mount failure, and card type
+
+- Status: Accepted for bring-up QC (v0.2.0)
+- Defect evidence: The live v0.1.0 bench session failed in ~3 ms with only `sd_mount_failed`, which cannot distinguish "no card inserted", "card present but mount failed", or "dead signal lines" on the shared SPI bus (GPIO11/12/13, SD CS GPIO47, ETH CS GPIO10).
+- Decision: Before `SD.begin`, run a low-level CMD0 (GO_IDLE_STATE) probe at 400 kHz on the shared bus with the W5500 CS held high. No R1 response within the retry budget reports `sd_no_card`; a responding card whose filesystem mount still fails reports `sd_mount_failed`. On success, the SD library's card type is recorded (`none|mmc|sd1|sdhc|unknown`, per the core's `sd_defines.h` enum) as run evidence.
+- Safety boundary: The probe runs only while the filesystem is not mounted, releases both chip selects and clocks out extra idle bytes before returning, and services MCP1B4 between retry bursts. The write/readback/delete test is unchanged: one uniquely named 8.3 file per run, exact size and content comparison, removal verified absent, pre-existing files never touched.
+- Status surface: `/api/status` `sdTest` adds `cardPresent`, `cardType`, and a `probing` stage beside the existing fields.
+- Consequence: A bench operator can now tell whether to re-seat the card, replace it, or suspect the SPI wiring, without a serial console.
+
+## D-018 — Two-column QC portal with sticky guide/progress on desktop
+
+- Status: Accepted for bring-up QC (v0.2.0)
+- Operator request: The v0.1.0 page rendered cramped and visually shuffled; the operator wants the tutorial on the right on desktop.
+- Decision: One layout: a left content column (five QC cards, log, secondary Wi-Fi/OTA disclosures) and a right sidebar containing the single progress card plus the tutorial/rules card, sticky on desktop (`position:sticky`, top-aligned). Below 920 px the grid collapses to one column and the sidebar moves above the cards (`order:-1`), so mobile shows the guide first with no overlap. Section duplication is removed: progress, guide, log, Wi-Fi, and OTA each exist exactly once.
+- Poll cadence: `/api/status` polling is 300 ms while `ledTest.running` (sequence step is 300 ms, so on-screen LED dots track the hardware instead of jumping), 1000 ms while any other QC test runs, and 2000 ms idle; `pollWake` still forces an immediate re-poll after any action and fetches never overlap.
+- Manual LED surface: The LED card renders one button per LED 2–10 plus "Semua OFF"; the clicked and the firmware-reported active LED both highlight, so the UI state is always the hardware state from `activeLed`, never a local guess.
+- Evidence limitation: Rendering and layout behavior are compile-plus-browser evidence only; the physical LED/button/AHT/Ethernet/SD evidence comes from the operator completing the QC workflow on hardware.
+
+## D-019 — v0.2.0 firmware version bump
+
+- Status: Accepted for bring-up QC
+- Evidence: New operator-facing behavior (manual LED mode, AHT10 diagnostics, SD probe stages, portal layout) plus the live v0.1.0 bench session corrections above. Per D-014 the version is defined only in `tmm_v6_r0_m0_version.h` and every runtime surface consumes that constant.
+- Decision: Bump the firmware to `v0.2.0` (minor: new manual LED feature). Still explicitly non-production: no completed hardware QC evidence exists yet.
+- Consequence: QC JSON exports from this build carry `firmwareVersion: "v0.2.0"` so v0.1.0 bench evidence and v0.2.0 evidence remain distinguishable.
+

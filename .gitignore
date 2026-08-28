@@ -10,3 +10,5 @@ dist/
 !.env.example
 firmware/**/wifi_secrets.h
 
+ai/
+firmware/**/build/
