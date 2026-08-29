@@ -44,3 +44,7 @@ electrical signaling or prove compatibility with physical hardware.
 
 Read [`docs/TELEMETRIC_ECOSYSTEM_CONTRACT.md`](docs/TELEMETRIC_ECOSYSTEM_CONTRACT.md)
 before publishing any TMM firmware artifact.
+
+## Ecosystem
+
+Part of the [Telemetric Hardware Portal](https://github.com/TaufikAS0/telemetric-hardware-portal) ecosystem. Firmware artifacts are published to the [Telemetric Firmware Library](https://github.com/TaufikAS0/telemetric-firmware-library). Registry and coordination: [obsidian-portal-hardware](https://github.com/TaufikAS0/obsidian-portal-hardware).
