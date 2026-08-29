@@ -170,7 +170,7 @@
 
 ## D-020 — RS485 QC as a Modbus RTU master ported from the Longhi bench tester
 
-- Status: Accepted for bring-up QC (v0.3.0)
+- Status: Accepted for bring-up QC (v0.6.0)
 - Operator request: Confirm the onboard RS485 works by reusing the proven Modbus tester from the Longhi `esp32s3_hwtest` sketch; the operator attaches only the A/B differential lines to the device under test.
 - Hardware evidence: Workbook sheet `TMM_V6_R0_M0` wires the RS485 module with VCC 5V, GND, module TX1 → ESP RX GPIO17, module RX1 → ESP TX GPIO18, and no DE/RE direction line. The Longhi bench used the same 4-wire module class (auto direction, UART2, 9600 8N1) successfully against real Modbus slaves. `tmm_v6_r0_m0_pins.h` already carries exactly this mapping (`RS485_RX=17`, `RS485_TX=18`).
 - Decision: Port the Longhi Modbus tester into the TMM sketch as the sixth mandatory QC item. Nonblocking master on UART2 polls read-holding-registers (0x03) every 300 ms with a 200 ms response timeout. Auto mode targets slave 1, register 0, count 1; manual mode accepts slave 1–247, register 0–65535, count 1–125. PASS = 3 consecutive CRC-valid responses (Longhi streak filter); any failure resets the streak and records its reason.
@@ -180,8 +180,15 @@
 
 ## D-021 — Interactive clickable tutorial for QC operators
 
-- Status: Accepted for bring-up QC (v0.3.1)
+- Status: Accepted for bring-up QC (v0.6.0)
 - Operator request: The tutorial was static text, so operators were unsure which card to work on and what was currently running.
-- Decision: The tutorial steps and progress tiles are clickable and scroll to their QC card with a brief highlight animation; each tutorial step carries a live state badge (`SEKARANG` for the next undecided item, `SELESAI`/`BYPASS` once decided, `MENUNGGU` otherwise), the "next step" line in the progress card is itself clickable, and a running-test indicator under the next-step line shows exactly which test is active with its live stage (e.g. `Sedang berjalan: RS485 polling 2/3 valid`). No firmware/API contract changes — this is portal UX only, hence the patch-level version bump.
+- Decision: The tutorial steps and progress tiles are clickable and scroll to their QC card with a brief highlight animation; each tutorial step carries a live state badge (`SEKARANG` for the next undecided item, `SELESAI`/`BYPASS` once decided, `MENUNGGU` otherwise), the "next step" line in the progress card is itself clickable, and a running-test indicator under the next-step line shows exactly which test is active with its live stage (e.g. `Sedang berjalan: RS485 polling 2/3 valid`). No firmware/API contract changes — this is portal UX only, folded into the v0.6.0 release alongside D-020.
 - Evidence limitation: Click/navigation behavior is compile-plus-browser evidence; the physical QC evidence still comes only from the operator completing the workflow on hardware.
+
+## D-022 — Firmware version corrected to v0.6.0 as successor to registry-approved v0.5.0
+
+- Status: Accepted for bring-up QC (v0.6.0)
+- Evidence: The TMM product registry records `v0.5.0` as the latest approved release. The current branch adds new firmware features (RS485 Modbus RTU QC per D-020, interactive clickable tutorial per D-021) on top of that approved baseline, so its correct semantic version is `v0.6.0` (minor: new RS485 QC feature). The build had been labeled `v0.3.1`, which collides with historical registry releases and reads as a regression even though the features are new.
+- Decision: Set the version source of truth (`tmm_v6_r0_m0_version.h`) to `v0.6.0` and correct every current-branch documentation/test reference that identified this build as `v0.3.1` or attributed its RS485 feature to `v0.3.0`. Historical references to genuinely old released `v0.3.x` records elsewhere remain untouched as historical facts.
+- Boundary: Identity-only change — no runtime behavior, UI layout, hardware logic, pins, API contract, or test logic is altered; only the version constants, version commentary, and version expectations change. QC JSON exports from this build carry `firmwareVersion: "v0.6.0"`, keeping evidence from this build distinguishable from the approved `v0.5.0` baseline and from historical `v0.3.x` releases.
 

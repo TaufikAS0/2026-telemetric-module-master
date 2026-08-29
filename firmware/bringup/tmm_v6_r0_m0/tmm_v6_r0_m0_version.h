@@ -3,12 +3,15 @@
 // Dedicated embedded source of truth for the TMM V6 R0 M0 bring-up firmware
 // semantic version (decision D-014).
 //
-// - v0.3.1 makes the portal guide interactive for operators: clickable
+// - v0.6.0 carries the RS485 Modbus RTU QC card (D-020) and the interactive
+//   clickable operator tutorial (D-021): a bench-proven Modbus RTU master
+//   ported from the Longhi hwtest onto the workbook RS485 pins (RX GPIO17 /
+//   TX GPIO18, 9600 8N1, auto+manual poll, 3-valid streak PASS), plus
 //   tutorial steps and progress tiles that reveal their QC card, live
-//   per-step state badges, and a running-test indicator (D-021).
-// - v0.3.0 adds the RS485 Modbus RTU QC card (D-020): a bench-proven Modbus
-//   RTU master ported from the Longhi hwtest onto the workbook RS485 pins
-//   (RX GPIO17 / TX GPIO18, 9600 8N1, auto+manual poll, 3-valid streak PASS).
+//   per-step state badges, and a running-test indicator. Per D-022 it is the
+//   feature-bearing successor to v0.5.0, the latest approved release in the
+//   TMM product registry; the earlier v0.3.1 identity collided with
+//   historical registry releases and was corrected, not a feature removal.
 // - v0.2.0 carried the v0.1.0 bench-session corrections: explicit active-low
 //   LED drive with a manual per-LED mode (D-015), datasheet-ordered AHT10
 //   init plus stage diagnostics (D-016), SD card-presence probe with
@@ -25,8 +28,8 @@
 // stringify helpers below expand the *token* they receive, so stringifying a
 // constexpr identifier would bake the literal macro name into FIRMWARE_VERSION.
 #define TMM_M0_VERSION_MAJOR 0
-#define TMM_M0_VERSION_MINOR 3
-#define TMM_M0_VERSION_PATCH 1
+#define TMM_M0_VERSION_MINOR 6
+#define TMM_M0_VERSION_PATCH 0
 
 #define TMM_M0_VERSION_STRINGIFY_(value) #value
 #define TMM_M0_VERSION_STRINGIFY(value) TMM_M0_VERSION_STRINGIFY_(value)

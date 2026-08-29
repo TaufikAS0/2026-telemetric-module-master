@@ -544,12 +544,12 @@ test("QC tutorial steps are clickable and show live step state for operators", a
   assert.match(page, /\.card\.navflash\{animation:navflash/);
 });
 
-test("firmware version is bumped to at least v0.3.0 for the RS485 QC feature", async () => {
+test("firmware version is v0.6.0, the successor to registry-approved v0.5.0", async () => {
   const header = await readFile(versionHeaderUrl, "utf8");
   const macros = new Map(
     [...header.matchAll(/^\s*#define\s+(TMM_M0_VERSION_(?:MAJOR|MINOR|PATCH))\s+(\d+)\s*$/gm)].map((m) => [m[1], Number(m[2])])
   );
   assert.equal(macros.get("TMM_M0_VERSION_MAJOR"), 0);
-  assert.ok(macros.get("TMM_M0_VERSION_MINOR") >= 3, "minor version carries the RS485 QC feature");
-  assert.ok(macros.get("TMM_M0_VERSION_PATCH") >= 0);
+  assert.equal(macros.get("TMM_M0_VERSION_MINOR"), 6, "minor version succeeds the registry-approved v0.5.0 and carries the RS485 QC feature");
+  assert.equal(macros.get("TMM_M0_VERSION_PATCH"), 0);
 });
