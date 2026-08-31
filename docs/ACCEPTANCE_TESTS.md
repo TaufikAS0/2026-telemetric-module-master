@@ -22,6 +22,19 @@
 7. Restore the module online.
 8. Stop the process and confirm port 8090 closes.
 
+## LAN OTA contract (simulated, draft — D-023/D-024/D-025)
+
+- Device identity document contains every required field with TMM identity values.
+- Discovery advertisement is `_telemetric-ota._tcp` with all required TXT keys.
+- Device-info reports `otaSupported: false` without a provisioned token.
+- OTA image endpoint rejects missing and wrong tokens with 401.
+- OTA image endpoint rejects a full merged image larger than the OTA slot with 413.
+- OTA image endpoint accepts an app-only image and enters the pending-verify state.
+- Rollback confirms only after sustained healthy loop time; an unhealthy boot rolls back.
+- Build metadata distinguishes the app-only OTA BIN from the USB merged BIN.
+
+Run with `npm test`; the contract simulator lives in `simulator/ota-lan.mjs`.
+
 ## Not yet testable
 
 - Physical bus discovery
@@ -30,6 +43,7 @@
 - Flashing and bootloader compatibility
 - Hardware watchdog behavior
 - EMC, thermal, and production QC limits
+- Real mDNS discovery, LAN upload, and rollback on a physical board (OTA LAN path)
 
 ## TMM V6 R0 M0 bring-up MVP
 

@@ -58,6 +58,28 @@ password, choose the app BIN, then select **Upload & restart**. Both OTA paths a
 `tmm_v6_r0_m0.ino.bin`; the 4 MB merged image is for full USB flashing and must
 not be sent to the OTA endpoint. Use `ota-clear` to disable OTA access.
 
+## LAN OTA for the Hardware Portal backend (draft)
+
+Once the station network is connected, the sketch also advertises mDNS service
+`_telemetric-ota._tcp` and serves `GET /api/device-info` plus a token-protected
+`POST /api/ota/image` for the portal backend (contract: `docs/OTA_LAN_CONTRACT.md`,
+decisions D-023/D-024/D-025). The token is the same OTA secret provisioned with
+`ota-set`; nothing is hard-coded. Updates write the inactive `ota_0`/`ota_1`
+slot per the sketch-local `partitions.csv`; a full merged image is rejected
+because it cannot fit one OTA slot. `lan-ota` prints the identity document on
+the serial console.
+
+Build both artifacts (app-only BIN for LAN OTA, merged BIN for USB) with:
+
+```powershell
+npm run build:bringup
+```
+
+Outputs land in the git-ignored `firmware/bringup/build/tmm_v6_r0_m0/`
+directory with an `artifacts.json` that distinguishes the two image types.
+Compile output is toolchain evidence only; no board has been updated through
+this path yet.
+
 ## QC web portal
 
 Connect a phone or computer to the generated `TMM-M0-xxxxxx` hotspot. Its
@@ -89,6 +111,7 @@ Serial commands:
 - `ota` — report OTA configuration/readiness without revealing its password;
 - `ota-set <password>` — store the OTA password and start OTA when Wi-Fi is ready;
 - `ota-clear` — erase the OTA password and disable OTA;
+- `lan-ota` — print the LAN OTA identity document (`/api/device-info` body);
 - `oled` — report the detected address and redraw Wi-Fi/IP status;
 - `qc` — report hotspot, AP IP, client count, and portal readiness;
 - `heartbeat` — show MCP1B4 heartbeat readiness and interval;

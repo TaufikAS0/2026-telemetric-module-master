@@ -187,6 +187,54 @@
 
 ## D-022 — Firmware version corrected to v0.6.0 as successor to registry-approved v0.5.0
 
+## D-023 — LAN OTA discovery contract for the Hardware Portal backend
+
+- Status: Accepted (draft; no hardware evidence yet)
+- Decision: TMM advertises `_telemetric-ota._tcp` over mDNS after the station
+  network connects, serves a read-only identity document at
+  `GET /api/device-info` (productCode, deviceId from the eFuse MAC,
+  hardwareRevision, firmwareVersion, chipFamily, flashSize, flashMode, ip,
+  otaSupported), and accepts an application image at `POST /api/ota/image`.
+- Reason: the portal backend needs a stable, product-scoped way to find TMM
+  devices on the LAN and update them without USB access.
+- Trade-off: `deviceId` is bench identity from the eFuse MAC, not a
+  provisioned cryptographic identity; the open QC hotspot still uses HTTP.
+- Evidence: `docs/OTA_LAN_CONTRACT.md`, `simulator/ota-lan.mjs`,
+  `tests/ota-lan.test.mjs`, compile with `PartitionScheme=custom`.
+- Unknown: real mDNS browsing, LAN upload, and rollback behavior on a
+  physical board.
+
+## D-024 — Safe OTA partitions with two slots, rollback confirm, and dual artifacts
+
+- Status: Accepted (draft)
+- Decision: the bring-up build uses a sketch-local `partitions.csv` with
+  `nvs`/`otadata`/`ota_0`/`ota_1`/`coredump` (two 1984K app slots) selected
+  through `PartitionScheme=custom`. When the bootloader supports app-rollback,
+  a newly written slot is confirmed only after 15 s of healthy loop iterations
+  with the watchdog heartbeat alive; otherwise the flag compiles out and
+  `Update.end(true)` validation remains. Every build emits an app-only BIN
+  (offset `0x10000`, transport LAN OTA) and a merged BIN (offset `0`, USB) with
+  metadata that distinguishes them; USB recovery is preserved.
+- Reason: an update must never brick the only bootable slot, and the OTA
+  endpoint must not receive a full 4 MB merged image.
+- Evidence: `partitions.csv`, `tmm_ota_lan.h`, `scripts/build-bringup.ps1`
+  (`artifacts.json`), decoded partition table from the compile output.
+- Unknown: rollback under a real crash needs board evidence.
+
+## D-025 — LAN OTA token is provisioned, never hard-coded
+
+- Status: Accepted (draft)
+- Decision: `POST /api/ota/image` requires `Authorization: Bearer <token>`
+  (or `X-OTA-Token`), compared constant-time against the existing NVS OTA
+  secret provisioned through the serial console (`ota-set <password>`,
+  8–63 characters, `tmm-ota` namespace). No credential lives in source.
+- Reason: the portal backend must authenticate without the firmware or Git
+  history carrying a secret; the bench operator already owns provisioning.
+- Trade-off: single shared token per device, bench-grade secret storage
+  (NVS is not encrypted); consistent with the existing non-production stance.
+- Unknown: production key provisioning stays blocked on the Security row of
+  `docs/HARDWARE_DISCOVERY.md`.
+
 - Status: Accepted for bring-up QC (v0.6.0)
 - Evidence: The TMM product registry records `v0.5.0` as the latest approved release. The current branch adds new firmware features (RS485 Modbus RTU QC per D-020, interactive clickable tutorial per D-021) on top of that approved baseline, so its correct semantic version is `v0.6.0` (minor: new RS485 QC feature). The build had been labeled `v0.3.1`, which collides with historical registry releases and reads as a regression even though the features are new.
 - Decision: Set the version source of truth (`tmm_v6_r0_m0_version.h`) to `v0.6.0` and correct every current-branch documentation/test reference that identified this build as `v0.3.1` or attributed its RS485 feature to `v0.3.0`. Historical references to genuinely old released `v0.3.x` records elsewhere remain untouched as historical facts.

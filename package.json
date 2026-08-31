@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "start": "node simulator/server.mjs",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "build:bringup": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build-bringup.ps1"
   },
   "engines": {
     "node": ">=20"

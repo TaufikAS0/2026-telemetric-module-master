@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "productCode": "TMM",
+  "buildId": "7161baa-lan-ota",
+  "sourceCommit": "7161baaaa72941d182e68ed124c8de54788381ae",
+  "hardwareRevision": "TMM_V6_R0_M0",
+  "chipFamily": "ESP32-S3",
+  "flashSize": "4MB",
+  "flashMode": "dio",
+  "partitionScheme": "tmm-ota-4mb",
+  "fqbn": "esp32:esp32:esp32s3:FlashSize=4M,FlashMode=dio,PartitionScheme=custom",
+  "artifacts": [
+    {
+      "imageType": "app",
+      "offset": 65536,
+      "fileName": "tmm_v6_r0_m0.ino.bin",
+      "sizeBytes": 1161808,
+      "sha256": "7daf7271540768e961d435c693f728f3ff4ad33303a77731bbfe06ca6a1fc6e0",
+      "transport": "lan-ota",
+      "usbRecovery": false
+    },
+    {
+      "imageType": "full",
+      "offset": 0,
+      "fileName": "tmm_v6_r0_m0.ino.merged.bin",
+      "sizeBytes": 4194304,
+      "sha256": "bbb6986c5587c1d1cd2103d8f4a0a4cc2fd5ecbb94f34be2e90d5778d96cc973",
+      "transport": "usb",
+      "usbRecovery": true
+    }
+  ]
+}

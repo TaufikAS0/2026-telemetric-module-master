@@ -9,6 +9,7 @@
 #include <Wire.h>
 #include <WiFi.h>
 
+#include "tmm_ota_lan.h"
 #include "tmm_v6_r0_m0_pins.h"
 #include "tmm_v6_r0_m0_version.h"
 #include "tmm_web_ota.h"
@@ -53,6 +54,20 @@ String qcApSsid;
 bool ethernetReady = false;
 IPAddress ethernetIp;
 TmmWebOtaUploader webOta;
+TmmLanOta lanOta;
+char lanDeviceId[13];
+TmmOtaLanIdentity lanIdentity{};
+
+void buildLanIdentity() {
+  const uint64_t efuse = ESP.getEfuseMac();
+  snprintf(lanDeviceId, sizeof(lanDeviceId), "%02x%02x%02x%02x%02x%02x",
+    static_cast<unsigned>((efuse >> 40) & 0xFF), static_cast<unsigned>((efuse >> 32) & 0xFF),
+    static_cast<unsigned>((efuse >> 24) & 0xFF), static_cast<unsigned>((efuse >> 16) & 0xFF),
+    static_cast<unsigned>((efuse >> 8) & 0xFF), static_cast<unsigned>(efuse & 0xFF));
+  lanIdentity = TmmOtaLanIdentity{
+    "TMM", lanDeviceId, "TMM_V6_R0_M0", FIRMWARE_VERSION,
+    "ESP32-S3", "tmm-ota-4mb", "tmm-v6-r0-m0"};
+}
 
 void startWifi(void);
 
@@ -378,6 +393,16 @@ void serviceOta() {
   serviceHeartbeat();
   ArduinoOTA.handle();
   serviceHeartbeat();
+}
+
+// LAN OTA discovery and stability confirmation (decision D-023/D-024).
+void serviceLanOta() {
+  if (WiFi.status() == WL_CONNECTED) {
+    lanOta.advertise();
+  } else if (lanOta.advertised()) {
+    lanOta.end();
+  }
+  lanOta.serviceStabilityConfirm(heartbeatReady);
 }
 
 // Drive polarity of the LED2..LED10 outputs. Live bench evidence (v0.1.0 QC
@@ -2953,6 +2978,7 @@ void startQcPortal() {
   webServer.on("/api/wifi/connect", HTTP_POST, connectWifiFromPortal);
   webServer.on("/api/ota/password", HTTP_POST, saveOtaPasswordFromPortal);
   webOta.begin(webServer, otaPassword, serviceHeartbeat);
+  lanOta.begin(webServer, lanIdentity, []() -> const String & { return otaPassword; });
   webServer.on("/generate_204", HTTP_ANY, redirectToQcPortal);
   webServer.on("/hotspot-detect.html", HTTP_ANY, redirectToQcPortal);
   webServer.on("/ncsi.txt", HTTP_ANY, redirectToQcPortal);
@@ -3007,7 +3033,7 @@ void printBlockedDrivers() {
 }
 
 void printHelp() {
-  Serial.println(F("Commands: profile, wifi, wifi-set <ssid>|<password>, wifi-clear, ota, ota-set <password>, ota-clear, oled, qc, heartbeat, scan-i2c, check-i2c, gpio, blocked, help"));
+  Serial.println(F("Commands: profile, wifi, wifi-set <ssid>|<password>, wifi-clear, ota, ota-set <password>, ota-clear, lan-ota, oled, qc, heartbeat, scan-i2c, check-i2c, gpio, blocked, help"));
 }
 
 void runCommand(String command) {
@@ -3048,6 +3074,12 @@ void runCommand(String command) {
   if (command == "qc") {
     Serial.printf("{\"qc\":{\"ready\":%s,\"ssid\":\"%s\",\"apIp\":\"%s\",\"clients\":%u}}\n",
       qcPortalReady ? "true" : "false", qcApSsid.c_str(), WiFi.softAPIP().toString().c_str(), WiFi.softAPgetStationNum());
+    return;
+  }
+  if (command == "lan-ota") {
+    char document[512];
+    lanOta.buildDeviceInfoJson(document, sizeof(document));
+    Serial.println(document);
     return;
   }
   if (command.startsWith("wifi-set ")) {
@@ -3121,6 +3153,7 @@ void setup() {
   Serial.printf("{\"heartbeat\":{\"ready\":%s,\"intervalMs\":%lu}}\n", heartbeatReady ? "true" : "false", HEARTBEAT_INTERVAL_MS);
   loadWifiConfiguration();
   loadOtaConfiguration();
+  buildLanIdentity();
   initializeOled();
   startQcPortal();
   startWifi();
@@ -3134,6 +3167,7 @@ void loop() {
   serviceWifi();
   serviceQcPortal();
   serviceOta();
+  serviceLanOta();
   serviceLedTest();
   serviceEthernetQc();
   serviceSdQc();
