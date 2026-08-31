@@ -1,8 +1,10 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "productCode": "TMM",
-  "buildId": "cc3c25b-lan-ota",
-  "sourceCommit": "cc3c25b0348e4cc5ca36a1a5df119083bc3e1e7c",
+  "version": "v0.6.1",
+  "releaseId": "TMM-0.6.1-0a9113e",
+  "buildId": "0a9113e-lan-ota",
+  "sourceCommit": "0a9113ebc0bd1dd284e7245acd0694027424e115",
   "hardwareRevision": "TMM_V6_R0_M0",
   "chipFamily": "ESP32-S3",
   "flashSize": "16MB",
@@ -17,7 +19,8 @@
       "sizeBytes": 1161808,
       "sha256": "665478b9802b191f9fae601a75e710faf9d140d0e935e4f62b7dcd9641d2f623",
       "transport": "lan-ota",
-      "usbRecovery": false
+      "usbRecovery": false,
+      "releaseId": "TMM-0.6.1-0a9113e"
     },
     {
       "imageType": "full",
@@ -26,7 +29,8 @@
       "sizeBytes": 16777216,
       "sha256": "a6fce50d3d19c4c4d5e13472c00eb2654510f051d36afb49d5f811f497080018",
       "transport": "usb",
-      "usbRecovery": true
+      "usbRecovery": true,
+      "releaseId": "TMM-0.6.1-0a9113e"
     }
   ]
 }

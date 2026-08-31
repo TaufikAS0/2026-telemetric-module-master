@@ -1,11 +1,12 @@
 # Builds the TMM V6 R0 M0 bring-up firmware with the safe OTA partition table
-# (decision D-024) and emits both artifact types with distinguishing metadata:
+# (decision D-024) and emits both artifact types as ONE bound release:
 # an app-only BIN for LAN OTA and a merged BIN for USB flashing/recovery.
+# A build FAILS unless both BIN files exist and every recorded size and
+# SHA-256 re-verifies against the physical files.
 # BIN files stay in the (git-ignored) build output directory; never commit them.
 #
 # Compile-only evidence: this proves toolchain consistency, not board
-# compatibility. The exact ESP32-S3 module/flash settings still need physical
-# confirmation before any real flash session.
+# compatibility. Flash geometry 16 MB / QIO is board-proven (decision D-026).
 param(
   [string]$OutputDir = "firmware/bringup/build/tmm_v6_r0_m0"
 )
@@ -20,6 +21,19 @@ New-Item -ItemType Directory -Force -Path $outPath | Out-Null
 # the sketch and no build-property override is needed.
 $buildId = git -C $repoRoot rev-parse --short=7 HEAD
 $sourceCommit = git -C $repoRoot rev-parse HEAD
+
+# The firmware semantic version is read from its embedded source of truth so
+# the metadata can never drift from the compiled image.
+$versionHeader = Join-Path $repoRoot "firmware\bringup\tmm_v6_r0_m0\tmm_v6_r0_m0_version.h"
+$defines = @{}
+Get-Content -LiteralPath $versionHeader | ForEach-Object {
+  if ($_ -match '^\s*#define\s+(TMM_M0_VERSION_(?:MAJOR|MINOR|PATCH))\s+(\d+)\s*$') {
+    $defines[$matches[1]] = [int]$matches[2]
+  }
+}
+if ($defines.Count -ne 3) { throw "Could not read TMM_M0_VERSION_* macros from $versionHeader" }
+$version = "v$($defines.TMM_M0_VERSION_MAJOR).$($defines.TMM_M0_VERSION_MINOR).$($defines.TMM_M0_VERSION_PATCH)"
+$releaseId = "TMM-$($version.TrimStart('v'))-$buildId"
 
 $compileArgs = @(
   "compile",
@@ -47,12 +61,15 @@ function Get-ArtifactInfo([string]$Path, [string]$ImageType, [long]$Offset, [str
     sha256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLower()
     transport = $Transport
     usbRecovery = $UsbRecovery
+    releaseId = $releaseId
   }
 }
 
 $metadata = [ordered]@{
-  schemaVersion = 1
+  schemaVersion = 2
   productCode = "TMM"
+  version = $version
+  releaseId = $releaseId
   buildId = "$buildId-lan-ota"
   sourceCommit = $sourceCommit
   hardwareRevision = "TMM_V6_R0_M0"
@@ -67,7 +84,29 @@ $metadata = [ordered]@{
   )
 }
 
+# One release package must carry both BINs; fail the build if either is missing.
 $metadataPath = Join-Path $outPath "artifacts.json"
 $metadata | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $metadataPath -Encoding utf8
+
+# Re-verify the written metadata against the physical files; any drift fails
+# the build instead of publishing a mismatched artifact pair.
+$check = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
+if ($check.artifacts.Count -ne 2) { throw "release package must bind exactly two artifacts" }
+foreach ($artifact in $check.artifacts) {
+  $file = Join-Path $outPath $artifact.fileName
+  if (!(Test-Path -LiteralPath $file)) { throw "bound artifact missing: $file" }
+  if ((Get-Item -LiteralPath $file).Length -ne $artifact.sizeBytes) { throw "size drift for $($artifact.fileName)" }
+  if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLower() -ne $artifact.sha256) { throw "SHA-256 drift for $($artifact.fileName)" }
+  if ($artifact.releaseId -ne $check.releaseId) { throw "artifact $($artifact.fileName) is not bound to release $($check.releaseId)" }
+}
+$app = $check.artifacts | Where-Object imageType -eq "app"
+$full = $check.artifacts | Where-Object imageType -eq "full"
+if (!$app -or !$full) { throw "release package needs one 'app' and one 'full' artifact" }
+if ($app.offset -ne 0x10000) { throw "app BIN offset must be 0x10000" }
+if ($full.offset -ne 0) { throw "merged BIN offset must be 0" }
+if ($full.sizeBytes -ne 16MB) { throw "merged BIN must cover the full 16MB flash" }
+if ($check.version -ne $version) { throw "metadata version does not match the compiled firmware version" }
+
+Write-Host "Release package verified: $($check.releaseId) (firmware $version, source $buildId)"
 Write-Host "Artifacts metadata: $metadataPath"
 Get-Content -LiteralPath $metadataPath

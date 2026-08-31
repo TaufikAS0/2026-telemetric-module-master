@@ -10,6 +10,7 @@ import {
   buildDiscoveryTxt,
   buildDeviceInfo,
   buildArtifactMetadata,
+  releaseIdFor,
   TmmOtaLanSimulator
 } from "../simulator/ota-lan.mjs";
 
@@ -105,7 +106,7 @@ test("rollback restores the previous slot when the new app fails before confirma
 
 test("artifact metadata distinguishes the OTA app image from the USB merged image", () => {
   const metadata = buildArtifactMetadata({
-    version: "0.7.0",
+    version: "v0.6.1",
     buildId: "test-build",
     sourceCommit: "7161baaaa72941d182e68ed124c8de54788381ae",
     appPath: "tmm_v6_r0_m0.ino.bin",
@@ -116,7 +117,11 @@ test("artifact metadata distinguishes the OTA app image from the USB merged imag
     mergedSha256: "b".repeat(64)
   });
   assert.equal(metadata.artifacts.length, 2);
+  assert.equal(metadata.releaseId, "TMM-0.6.1-test-build");
+  assert.equal(metadata.version, "v0.6.1", "the version field keeps its v-prefix");
   const [app, merged] = metadata.artifacts;
+  assert.equal(app.releaseId, metadata.releaseId, "app BIN is bound to the release");
+  assert.equal(merged.releaseId, metadata.releaseId, "merged BIN is bound to the same release");
   assert.equal(app.imageType, "app");
   assert.equal(app.transport, "lan-ota");
   assert.equal(app.offset, APP_IMAGE_OFFSET);

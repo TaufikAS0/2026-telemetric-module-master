@@ -69,9 +69,16 @@ export function buildDeviceInfo(identity, { ip, otaSupported }) {
   };
 }
 
+// Canonical releaseId format shared with scripts/build-bringup.ps1:
+// TMM-<version without the leading v>-<short commit>, e.g. TMM-0.6.1-0a9113e.
+// The `version` field itself keeps the v-prefix (v0.6.1).
+export function releaseIdFor(version, buildId) {
+  return `TMM-${version.replace(/^v/, "")}-${buildId}`;
+}
+
 export function buildArtifactMetadata({ appPath, mergedPath, appBytes, appSha256, mergedBytes, mergedSha256, version, buildId, sourceCommit }) {
+  const releaseId = releaseIdFor(version, buildId);
   const base = {
-    schemaVersion: 1,
     productCode: "TMM",
     version,
     buildId,
@@ -83,7 +90,9 @@ export function buildArtifactMetadata({ appPath, mergedPath, appBytes, appSha256
     partitionScheme: "tmm-ota-4mb"
   };
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    ...base,
+    releaseId,
     artifacts: [
       {
         ...base,
@@ -93,7 +102,8 @@ export function buildArtifactMetadata({ appPath, mergedPath, appBytes, appSha256
         sizeBytes: appBytes,
         sha256: appSha256,
         transport: "lan-ota",
-        usbRecovery: false
+        usbRecovery: false,
+        releaseId
       },
       {
         ...base,
@@ -103,7 +113,8 @@ export function buildArtifactMetadata({ appPath, mergedPath, appBytes, appSha256
         sizeBytes: mergedBytes,
         sha256: mergedSha256,
         transport: "usb",
-        usbRecovery: true
+        usbRecovery: true,
+        releaseId
       }
     ]
   };

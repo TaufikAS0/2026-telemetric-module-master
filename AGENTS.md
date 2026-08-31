@@ -16,6 +16,12 @@ Read these files before changing source code, in this order:
 - Every material design decision must be added to `docs/DECISION_LOG.md` with its evidence and consequences.
 - Label unverified claims as an assumption or unknown.
 - Never commit BIN files, credentials, Wi-Fi passwords, private keys, device secrets, or production data.
+- Every TMM firmware build must emit BOTH artifacts together as one bound release
+  (`npm run build:bringup`): the app-only BIN for LAN OTA and the merged BIN for USB
+  recovery, plus `artifacts.json` recording fileName, byte size, SHA-256, imageType,
+  offset, and supported transport for each. The build fails if either BIN or its
+  recorded metadata/checksum is unavailable, and the version must come from
+  `tmm_v6_r0_m0_version.h` so the two BINs always share one identity.
 - Each commit must leave `npm test` passing.
 - Do not publish a GitHub release or mark firmware production-ready without hardware-test evidence.
 - Preserve compatibility with the Telemetric Hardware Portal manifest contract.

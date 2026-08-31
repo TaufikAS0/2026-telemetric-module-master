@@ -75,10 +75,22 @@ Build both artifacts (app-only BIN for LAN OTA, merged BIN for USB) with:
 npm run build:bringup
 ```
 
-Outputs land in the git-ignored `firmware/bringup/build/tmm_v6_r0_m0/`
-directory with an `artifacts.json` that distinguishes the two image types.
-Compile output is toolchain evidence only; no board has been updated through
-this path yet.
+Every build must produce the two BINs **together as one bound release** in the
+git-ignored `firmware/bringup/build/tmm_v6_r0_m0/` directory:
+
+- `tmm_v6_r0_m0.ino.bin` — app-only image (offset `0x10000`, transport LAN OTA);
+- `tmm_v6_r0_m0.ino.merged.bin` — full flash image (offset `0`, transport USB);
+- `artifacts.json` — records each BIN's fileName, byte size, SHA-256,
+  imageType, offset, and supported transport, bound to one `releaseId`
+  (`TMM-<version>-<buildId>`), with the firmware version, source commit,
+  hardware profile, partition scheme, and 16 MB/QIO flash geometry shared by
+  both artifacts.
+
+The build fails if either BIN is missing or any recorded size/checksum no
+longer matches the physical file. The version is read from
+`tmm_v6_r0_m0_version.h` so the metadata cannot drift from the compiled
+image. Compile output is toolchain evidence only; no board has been updated
+through this path yet beyond the bench device used for D-026.
 
 ## QC web portal
 
