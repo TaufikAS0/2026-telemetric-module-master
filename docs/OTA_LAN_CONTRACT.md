@@ -16,8 +16,8 @@ only — a physical board has not been updated through this path yet.
   "hardwareRevision": "TMM_V6_R0_M0",
   "firmwareVersion": "v0.6.0",
   "chipFamily": "ESP32-S3",
-  "flashSize": "4MB",
-  "flashMode": "dio|qio|...",
+  "flashSize": "16MB",
+  "flashMode": "qio",
   "partitionScheme": "tmm-ota-4mb",
   "ip": "192.168.1.50",
   "otaSupported": true,
@@ -67,6 +67,17 @@ The build uses `partitions.csv` in the sketch folder with the safe OTA layout
 (decision D-024): `nvs`, `otadata`, `ota_0` (1984K), `ota_1` (1984K),
 `coredump`. Both app slots are interchangeable; `otadata` selects the slot.
 
+Board-proven module geometry (decision D-026): the ESP32-S3 module on the
+bench device carries 16 MB flash in QIO mode, confirmed live through
+`GET /api/device-info` after a real LAN OTA. The partition table itself is
+**not changed by an app-only OTA** — `Update` with `U_FLASH` writes only the
+inactive app slot; the table at `0x8000` and `otadata` stay untouched. The
+table above is byte-identical to the one already running on the device (its
+slots live inside the first 4 MB, which is valid on the 16 MB module), so
+adopting the 16MB/QIO profile does **not** require another USB merged flash;
+subsequent updates can continue over LAN. A USB merged flash is only needed
+if the partition layout itself ever changes.
+
 Rollback: when the bootloader is built with app-rollback support, the newly
 written slot boots in the pending-verify state and is only confirmed after
 `TmmLanOta::STABILITY_CONFIRM_MS` (15 s) of continuously healthy loop
@@ -84,7 +95,7 @@ this shape (`simulator/ota-lan.mjs`, `buildArtifactMetadata`):
 | imageType | File | Offset | Transport | Use |
 |---|---|---|---|---|
 | `app` | `tmm_v6_r0_m0.ino.bin` | `0x10000` | LAN OTA (`/api/ota/image`) | In-field update |
-| `full` | `tmm_v6_r0_m0.ino.merged.bin` | `0` | USB flashing | First flash and USB recovery |
+| `full` | `tmm_v6_r0_m0.ino.merged.bin` | `0` | USB flashing | First flash and USB recovery (16 MB image on the proven module) |
 
 USB recovery is preserved: the merged BIN always exists and must never be
 sent to the OTA endpoint.
@@ -93,7 +104,10 @@ sent to the OTA endpoint.
 
 - Compile + partition-table inspection and the simulator tests prove the
   contract shapes only.
-- Not yet proven: mDNS browsing from a real backend host, LAN upload to a
-  real board, rollback behavior under a real crash, and the exact module
-  flash settings. These require the physical device (see
+- Proven on hardware (2026-08-31, bench device `192.168.1.53`,
+  deviceId `9830bcad4f7c`): real app-only OTA over LAN succeeded and
+  `GET /api/device-info` reports the identity document including
+  16 MB/QIO flash geometry.
+- Still not proven: mDNS browsing from a real backend host, rollback
+  behavior under a real crash, and PSRAM/RAM geometry (see
   `docs/HARDWARE_DISCOVERY.md`).

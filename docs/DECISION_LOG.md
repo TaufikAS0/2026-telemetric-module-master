@@ -235,6 +235,33 @@
 - Unknown: production key provisioning stays blocked on the Security row of
   `docs/HARDWARE_DISCOVERY.md`.
 
+## D-026 — Module flash geometry corrected to 16 MB / QIO from board evidence
+
+- Status: Accepted (board-proven compatibility value; production status unchanged)
+- Decision: the build compatibility profile (artifacts metadata, build FQBN,
+  contract examples, and the hardware profile) states flashSize `16MB` and
+  flashMode `qio`, matching the live `GET /api/device-info` of the bench
+  device `192.168.1.53` (deviceId `9830bcad4f7c`) after a real app-only LAN
+  OTA succeeded on 2026-08-31. The OTA partition table is deliberately left
+  byte-identical to the table already running (decision D-024), and the
+  artifact-bearing version becomes `v0.6.1` so the corrected BINs can never
+  be confused with the first `v0.6.0` builds.
+- Reason: `flashSize`/`flashMode` in the identity document are read live from
+  the module (`ESP.getFlashChipSize()/getFlashChipMode()`), so the device
+  truthfully reported 16MB/QIO while the source-side assumptions still said
+  4MB/DIO; a compatibility gate comparing build metadata against the device
+  must not be weakened to paper over that difference.
+- Partition table via app-only OTA: `Update` with `U_FLASH` writes only the
+  inactive app slot; the partition table (`0x8000`) and `otadata` are never
+  touched by a LAN update. Because the rebuilt table is identical to the one
+  already flashed over USB, adopting 16MB/QIO does **not** require another
+  USB merged flash; a USB merged flash is only required if the partition
+  layout itself ever changes.
+- Evidence: device-info document from the live device; successful LAN OTA
+  upload of the app-only BIN; `scripts/build-bringup.ps1` rebuild output.
+- Unknown: PSRAM presence/type on the module (8 MB indication remains
+  unverified), exact part number, and rollback-under-crash behavior.
+
 - Status: Accepted for bring-up QC (v0.6.0)
 - Evidence: The TMM product registry records `v0.5.0` as the latest approved release. The current branch adds new firmware features (RS485 Modbus RTU QC per D-020, interactive clickable tutorial per D-021) on top of that approved baseline, so its correct semantic version is `v0.6.0` (minor: new RS485 QC feature). The build had been labeled `v0.3.1`, which collides with historical registry releases and reads as a regression even though the features are new.
 - Decision: Set the version source of truth (`tmm_v6_r0_m0_version.h`) to `v0.6.0` and correct every current-branch documentation/test reference that identified this build as `v0.3.1` or attributed its RS485 feature to `v0.3.0`. Historical references to genuinely old released `v0.3.x` records elsewhere remain untouched as historical facts.

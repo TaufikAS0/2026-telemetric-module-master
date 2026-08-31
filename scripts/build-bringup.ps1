@@ -23,7 +23,9 @@ $sourceCommit = git -C $repoRoot rev-parse HEAD
 
 $compileArgs = @(
   "compile",
-  "--fqbn", "esp32:esp32:esp32s3:FlashSize=4M,FlashMode=dio,PartitionScheme=custom",
+  # 16 MB / QIO is board-proven (decision D-026); the OTA partition layout
+  # itself is byte-identical to the table already flashed on the device.
+  "--fqbn", "esp32:esp32:esp32s3:FlashSize=16M,FlashMode=qio,PartitionScheme=custom",
   "--output-dir", $outPath,
   (Join-Path $repoRoot "firmware\bringup\tmm_v6_r0_m0")
 )
@@ -55,10 +57,10 @@ $metadata = [ordered]@{
   sourceCommit = $sourceCommit
   hardwareRevision = "TMM_V6_R0_M0"
   chipFamily = "ESP32-S3"
-  flashSize = "4MB"
-  flashMode = "dio"
+  flashSize = "16MB"
+  flashMode = "qio"
   partitionScheme = "tmm-ota-4mb"
-  fqbn = "esp32:esp32:esp32s3:FlashSize=4M,FlashMode=dio,PartitionScheme=custom"
+  fqbn = "esp32:esp32:esp32s3:FlashSize=16M,FlashMode=qio,PartitionScheme=custom"
   artifacts = @(
     Get-ArtifactInfo $appBin "app" 0x10000 "lan-ota" $false
     Get-ArtifactInfo $mergedBin "full" 0 "usb" $true

@@ -1,6 +1,11 @@
-# TMM 4 MB OTA partition table (decision D-024).
+# TMM OTA partition table (decision D-024; board-proven unchanged on the
+# 16 MB module, decision D-026).
 # Two interchangeable app slots so the LAN OTA endpoint can write the inactive
 # slot while the running firmware keeps serving; otadata selects the slot.
+# The layout occupies only the first 4 MB of the 16 MB flash module; the
+# offsets and sizes below are byte-identical to the table already running on
+# the bench device, so an app-only OTA never needs a new partition table and
+# a USB merged flash is not required to adopt the 16 MB/QIO profile.
 # Name,     Type, SubType,  Offset,   Size,     Flags
 nvs,        data, nvs,      0x9000,   0x5000,
 otadata,    data, ota,      0xe000,   0x2000,

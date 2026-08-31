@@ -3,6 +3,10 @@
 // Dedicated embedded source of truth for the TMM V6 R0 M0 bring-up firmware
 // semantic version (decision D-014).
 //
+// - v0.6.1 corrects the build compatibility profile to the board-proven
+//   module flash geometry, 16 MB / QIO (D-026), and rebuilds both artifacts
+//   with identical OTA partition offsets. It is the artifact-bearing
+//   successor to v0.6.0 so the two BIN families can never be confused.
 // - v0.6.0 carries the RS485 Modbus RTU QC card (D-020) and the interactive
 //   clickable operator tutorial (D-021): a bench-proven Modbus RTU master
 //   ported from the Longhi hwtest onto the workbook RS485 pins (RX GPIO17 /
@@ -29,7 +33,7 @@
 // constexpr identifier would bake the literal macro name into FIRMWARE_VERSION.
 #define TMM_M0_VERSION_MAJOR 0
 #define TMM_M0_VERSION_MINOR 6
-#define TMM_M0_VERSION_PATCH 0
+#define TMM_M0_VERSION_PATCH 1
 
 #define TMM_M0_VERSION_STRINGIFY_(value) #value
 #define TMM_M0_VERSION_STRINGIFY(value) TMM_M0_VERSION_STRINGIFY_(value)

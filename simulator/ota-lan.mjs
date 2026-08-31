@@ -78,8 +78,8 @@ export function buildArtifactMetadata({ appPath, mergedPath, appBytes, appSha256
     sourceCommit,
     hardwareRevision: "TMM_V6_R0_M0",
     chipFamily: "ESP32-S3",
-    flashSize: "4MB",
-    flashMode: "dio",
+    flashSize: "16MB",
+    flashMode: "qio",
     partitionScheme: "tmm-ota-4mb"
   };
   return {

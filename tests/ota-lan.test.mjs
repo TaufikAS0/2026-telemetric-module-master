@@ -19,8 +19,8 @@ const identity = {
   hardwareRevision: "TMM_V6_R0_M0",
   firmwareVersion: "v0.6.0",
   chipFamily: "ESP32-S3",
-  flashSize: "4MB",
-  flashMode: "dio",
+  flashSize: "16MB",
+  flashMode: "qio",
   partitionScheme: "tmm-ota-4mb",
   hostname: "tmm-v6-r0-m0"
 };
@@ -38,7 +38,7 @@ test("device identity contract carries the TMM identity", () => {
   assert.equal(info.deviceId, "aabbccddeeff");
   assert.equal(info.hardwareRevision, "TMM_V6_R0_M0");
   assert.equal(info.chipFamily, "ESP32-S3");
-  assert.equal(info.flashSize, "4MB");
+  assert.equal(info.flashSize, "16MB");
   assert.equal(info.otaSupported, true);
   assert.equal(info.otaPort, 80);
   assert.equal(info.otaPath, OTA_IMAGE_PATH);

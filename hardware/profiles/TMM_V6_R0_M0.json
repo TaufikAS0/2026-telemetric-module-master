@@ -18,7 +18,12 @@
       "family": "ESP32-S3",
       "exactPartNumber": null,
       "moduleVariant": null,
-      "flash": null,
+      "flash": {
+        "size": "16MB",
+        "mode": "qio",
+        "evidence": "Live GET /api/device-info of the bench device 192.168.1.53 (deviceId 9830bcad4f7c) reported flashSize 16MB / flashMode qio on 2026-08-31 after a real app-only LAN OTA; supersedes the earlier 4MB/DIO build assumption (D-026).",
+        "evidenceLevel": "board-proven-live"
+      },
       "externalRamIndication": {
         "sizeMiB": 8,
         "memoryType": null,
@@ -151,7 +156,7 @@
   },
   "unknownsBlockingProduction": [
     "Exact ESP32-S3 part number and module variant",
-    "Flash size and mode",
+    "PSRAM presence, size and type (8 MB indication unverified)",
     "ATtiny404 actual supply and I/O voltage",
     "Exact MCP2 part number and register map",
     "RS485 transceiver, direction control, termination and field protocol",
