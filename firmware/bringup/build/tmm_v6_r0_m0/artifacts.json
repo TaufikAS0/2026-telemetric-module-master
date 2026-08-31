@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
   "productCode": "TMM",
-  "buildId": "7161baa-lan-ota",
-  "sourceCommit": "7161baaaa72941d182e68ed124c8de54788381ae",
+  "buildId": "cc3c25b-lan-ota",
+  "sourceCommit": "cc3c25b0348e4cc5ca36a1a5df119083bc3e1e7c",
   "hardwareRevision": "TMM_V6_R0_M0",
   "chipFamily": "ESP32-S3",
-  "flashSize": "4MB",
-  "flashMode": "dio",
+  "flashSize": "16MB",
+  "flashMode": "qio",
   "partitionScheme": "tmm-ota-4mb",
-  "fqbn": "esp32:esp32:esp32s3:FlashSize=4M,FlashMode=dio,PartitionScheme=custom",
+  "fqbn": "esp32:esp32:esp32s3:FlashSize=16M,FlashMode=qio,PartitionScheme=custom",
   "artifacts": [
     {
       "imageType": "app",
       "offset": 65536,
       "fileName": "tmm_v6_r0_m0.ino.bin",
       "sizeBytes": 1161808,
-      "sha256": "7daf7271540768e961d435c693f728f3ff4ad33303a77731bbfe06ca6a1fc6e0",
+      "sha256": "665478b9802b191f9fae601a75e710faf9d140d0e935e4f62b7dcd9641d2f623",
       "transport": "lan-ota",
       "usbRecovery": false
     },
@@ -23,8 +23,8 @@
       "imageType": "full",
       "offset": 0,
       "fileName": "tmm_v6_r0_m0.ino.merged.bin",
-      "sizeBytes": 4194304,
-      "sha256": "bbb6986c5587c1d1cd2103d8f4a0a4cc2fd5ecbb94f34be2e90d5778d96cc973",
+      "sizeBytes": 16777216,
+      "sha256": "a6fce50d3d19c4c4d5e13472c00eb2654510f051d36afb49d5f811f497080018",
       "transport": "usb",
       "usbRecovery": true
     }
