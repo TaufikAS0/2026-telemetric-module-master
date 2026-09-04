@@ -544,12 +544,12 @@ test("QC tutorial steps are clickable and show live step state for operators", a
   assert.match(page, /\.card\.navflash\{animation:navflash/);
 });
 
-test("firmware version is v0.6.1, the artifact-bearing successor to v0.6.0 (D-026)", async () => {
+test("firmware version is v0.6.2, the Hardware QC successor to v0.6.0/v0.6.1 (D-027)", async () => {
   const header = await readFile(versionHeaderUrl, "utf8");
   const macros = new Map(
     [...header.matchAll(/^\s*#define\s+(TMM_M0_VERSION_(?:MAJOR|MINOR|PATCH))\s+(\d+)\s*$/gm)].map((m) => [m[1], Number(m[2])])
   );
   assert.equal(macros.get("TMM_M0_VERSION_MAJOR"), 0);
   assert.equal(macros.get("TMM_M0_VERSION_MINOR"), 6, "minor version succeeds the registry-approved v0.5.0 and carries the RS485 QC feature");
-  assert.equal(macros.get("TMM_M0_VERSION_PATCH"), 1, "patch bump keeps the 16MB/QIO-corrected BINs distinct from the first v0.6.0 builds (D-026)");
+  assert.equal(macros.get("TMM_M0_VERSION_PATCH"), 2, "patch bump keeps the QC-summary BINs distinct from the v0.6.0/v0.6.1 builds (D-026/D-027)");
 });

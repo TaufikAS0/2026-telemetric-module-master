@@ -33,7 +33,7 @@ test("metadata builder produces the canonical releaseId used by the PowerShell b
   assert.equal(metadata.version, version);
   assert.equal(metadata.releaseId, `TMM-${version.slice(1)}-${buildId}`);
   assert.equal(metadata.releaseId, releaseIdFor(version, buildId));
-  assert.equal(metadata.releaseId, "TMM-0.6.1-0a9113e");
+  assert.equal(metadata.releaseId, "TMM-0.6.2-0a9113e");
   assert.doesNotMatch(metadata.releaseId, /TMM-v/);
   for (const artifact of metadata.artifacts) {
     assert.equal(artifact.releaseId, metadata.releaseId, `${artifact.fileName} shares the release binding`);

@@ -3,6 +3,13 @@
 // Dedicated embedded source of truth for the TMM V6 R0 M0 bring-up firmware
 // semantic version (decision D-014).
 //
+// - v0.6.2 is the Hardware QC release: it keeps every proven QC capability of
+//   v0.6.0/v0.6.1 (six mandatory items per D-012/D-015/D-016/D-017/D-020,
+//   portal + LAN OTA per D-023/D-024/D-025) and adds a machine-readable
+//   `qcSummary` roll-up to /api/status (D-027) that distinguishes untested /
+//   testing / pass / fail / manual per item. PASS still comes only from the
+//   operator decision recorded in the portal — the summary never converts
+//   compile success or live evidence into an automatic hardware PASS.
 // - v0.6.1 corrects the build compatibility profile to the board-proven
 //   module flash geometry, 16 MB / QIO (D-026), and rebuilds both artifacts
 //   with identical OTA partition offsets. It is the artifact-bearing
@@ -33,7 +40,7 @@
 // constexpr identifier would bake the literal macro name into FIRMWARE_VERSION.
 #define TMM_M0_VERSION_MAJOR 0
 #define TMM_M0_VERSION_MINOR 6
-#define TMM_M0_VERSION_PATCH 1
+#define TMM_M0_VERSION_PATCH 2
 
 #define TMM_M0_VERSION_STRINGIFY_(value) #value
 #define TMM_M0_VERSION_STRINGIFY(value) TMM_M0_VERSION_STRINGIFY_(value)

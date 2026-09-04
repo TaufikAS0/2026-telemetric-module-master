@@ -2617,12 +2617,109 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!q('bypassModal').h
 buildStatic();renderDecisions();addLog('Portal QC siap. Mulai dari item 1: LED.');pollLoop();
 </script></body></html>)QC_HTML";
 
+// ---------------------------------------------------------------------------
+// QC summary roll-up (v0.6.2, decision D-027)
+//
+// Machine-readable states for the six mandatory QC items, derived ONLY from
+// the existing per-test state structures above — no new hardware knowledge
+// and never an automated hardware PASS:
+//   "untested" belum ada bukti live; "testing" tes sedang berjalan;
+//   "pass"     bukti live otomatis lengkap dan segar;
+//   "fail"     tes berakhir gagal (error tercatat, tidak sedang jalan);
+//   "manual"   butuh keputusan operator (observasi manusia) — PASS tetap
+//              hanya berasal dari keputusan operator di portal QC.
+// The simulator contract in simulator/qc-summary.mjs mirrors these rules.
+// ---------------------------------------------------------------------------
+
+const char *qcSummaryLedState() {
+  if (ledTest.mode != LedMode::IDLE) return "testing";
+  if (ledTest.lastError.length()) return "fail";
+  if (ledTest.cyclesCompleted >= 1) return "manual";
+  return "untested";
+}
+
+const char *qcSummaryButtonsState() {
+  if (bootButton.fullCycleConfirmed && changeDisplayButton.fullCycleConfirmed) return "manual";
+  return "untested";
+}
+
+const char *qcSummaryAht10State(uint32_t now) {
+  if (aht10.sampling || aht10.stage != Aht10Stage::CYCLE_START) return "testing";
+  if (aht10.sampleValid && (now - aht10.sampleMs) <= AHT10_STALE_AFTER_MS) return "pass";
+  if (aht10.errorCount > 0 && !aht10.sampleValid) return "fail";
+  return "untested";
+}
+
+const char *qcSummaryEthernetState() {
+  switch (ethernetQc.stage) {
+    case EthernetQcStage::INITIALIZING:
+    case EthernetQcStage::WAITING_LINK:
+    case EthernetQcStage::ACQUIRING_DHCP:
+      return "testing";
+    case EthernetQcStage::PASSED:
+      return "pass";
+    case EthernetQcStage::FAILED:
+      return "fail";
+    case EthernetQcStage::IDLE:
+      return "untested";
+  }
+  return "untested";
+}
+
+const char *qcSummarySdState() {
+  switch (sdQc.stage) {
+    case SdQcStage::PROBING:
+    case SdQcStage::MOUNTING:
+    case SdQcStage::WRITING:
+    case SdQcStage::READING:
+    case SdQcStage::CLEANING:
+      return "testing";
+    case SdQcStage::PASSED:
+      return "pass";
+    case SdQcStage::FAILED:
+      return "fail";
+    case SdQcStage::IDLE:
+      return "untested";
+  }
+  return "untested";
+}
+
+const char *qcSummaryRs485State() {
+  if (rs485Qc.running) return "testing";
+  if (rs485Qc.pass) return "pass";
+  if (rs485Qc.lastError.length() && rs485Qc.lastError != "stopped") return "fail";
+  return "untested";
+}
+
+void appendQcSummary(String &json, uint32_t nowMs) {
+  json += F("\"qcSummary\":{\"items\":{");
+  json += F("\"led\":{\"state\":\"");
+  json += qcSummaryLedState();
+  json += F("\",\"manualRequired\":true}");
+  json += F(",\"buttons\":{\"state\":\"");
+  json += qcSummaryButtonsState();
+  json += F("\",\"manualRequired\":true}");
+  json += F(",\"aht10\":{\"state\":\"");
+  json += qcSummaryAht10State(nowMs);
+  json += F("\",\"manualRequired\":false}");
+  json += F(",\"ethernet\":{\"state\":\"");
+  json += qcSummaryEthernetState();
+  json += F("\",\"manualRequired\":false}");
+  json += F(",\"sd\":{\"state\":\"");
+  json += qcSummarySdState();
+  json += F("\",\"manualRequired\":false}");
+  json += F(",\"rs485\":{\"state\":\"");
+  json += qcSummaryRs485State();
+  json += F("\",\"manualRequired\":false}");
+  json += F("}}");
+}
+
 String qcStatusJson() {
   const uint32_t nowMs = millis();
   const bool connected = WiFi.status() == WL_CONNECTED;
   String json;
   json.reserve(2400);
-  json += F("{\"heartbeat\":{\"ready\":");
+  json += F("{\"productCode\":\"TMM\",\"hardwareRevision\":\"TMM_V6_R0_M0\",\"heartbeat\":{\"ready\":");
   json += heartbeatReady ? F("true") : F("false");
   json += F(",\"intervalMs\":");
   json += HEARTBEAT_INTERVAL_MS;
@@ -2752,7 +2849,10 @@ String qcStatusJson() {
   else json += rs485Qc.durationMs;
   json += F(",\"lastError\":\"");
   json += rs485Qc.lastError;
-  json += F("\"},\"firmwareVersion\":\"");
+  json += F("\"}");
+  json += ",";
+  appendQcSummary(json, nowMs);
+  json += F(",\"firmwareVersion\":\"");
   json += FIRMWARE_VERSION;
   json += F("\"}");
   return json;

@@ -114,6 +114,14 @@ and an RS485 Modbus RTU run with three consecutive CRC-valid responses. Every
 item must be approved or bypassed with a reason before the operator can export
 the JSON report. LoRa is intentionally skipped.
 
+Since v0.6.2 the `/api/status` document also carries a machine-readable
+`qcSummary` block (decision D-027): each of the six mandatory items reports
+`untested`, `testing`, `pass`, `fail`, or `manual`, derived only from the live
+test state. `led` and `buttons` are `manualRequired: true` — they can never
+become a firmware PASS, because the visual verdict belongs to the operator.
+The summary never converts evidence into hardware PASS; the portal decision
+and the exported QC JSON remain the evidence record.
+
 Serial commands:
 
 - `profile` — show the board/evidence level;
